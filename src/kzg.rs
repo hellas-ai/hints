@@ -31,6 +31,8 @@ pub enum Error {
     /// The degree provided in setup was too small; degree 0 polynomials
     /// are not supported.
     DegreeIsZero,
+    /// The degree provided in setup was not a power of 2.
+    DegreeIsNotPowerOf2,
 
     /// The degree of the polynomial passed to `commit` or `open`
     /// was too large.
@@ -69,6 +71,9 @@ where
     pub fn setup<R: RngCore>(max_degree: usize, rng: &mut R) -> Result<UniversalParams<E>, Error> {
         if max_degree < 1 {
             return Err(Error::DegreeIsZero);
+        }
+        if max_degree.count_ones() != 1 { // i get internal crate errors with non-power-of-2 degrees
+            return Err(Error::DegreeIsNotPowerOf2);
         }
 
         //let setup_time = start_timer!(|| format!("KZG10::Setup with degree {}", max_degree));
