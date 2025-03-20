@@ -1,9 +1,6 @@
 
-pub mod kzg;
 pub mod utils;
 pub mod proof_system;
-pub mod original_proof_system;
-pub mod original_code;
 
 // Public interface for using this crate in a more user-friendly way
 pub struct UniverseBuilder;
