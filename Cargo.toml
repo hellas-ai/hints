@@ -22,10 +22,13 @@ ark-crypto-primitives = { version = "0.5.0" }
 ark-bls12-381 = { version = "0.5.0" }
 ark-serialize = { version = "0.5.0" }
 paste = { version = "1.0" }
-crossbeam = { version = "0.8.2" }
+crossbeam = { version = "0.8.4" }
+rayon = { version = "1.10.0" , optional = true }
+
 [features]
+default = [ "parallel" , "asm" ]
 asm = [ "ark-ff/asm" ]
-parallel = [ "ark-std/parallel", "ark-ff/parallel",  "ark-ec/parallel", ]
+parallel = [ "ark-std/parallel", "ark-ff/parallel",  "ark-ec/parallel", "dep:rayon" ]
 
 [profile.dev]
 opt-level = 3

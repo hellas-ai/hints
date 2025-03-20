@@ -10,7 +10,7 @@ use ark_std::{ops::*, rand::Rng, test_rng, UniformRand};
 
 // Import polynomial commitment related types
 use ark_poly_commit::{
-    sonic_pc::SonicKZG10, Evaluations as PCEvaluations, LabeledCommitment, LabeledPolynomial,
+    sonic_pc::{Commitment, SonicKZG10}, Evaluations as PCEvaluations, LabeledCommitment, LabeledPolynomial,
     QuerySet,
 };
 
@@ -24,7 +24,7 @@ pub type G1 = <Bls12_381 as Pairing>::G1Affine;
 pub type G2 = <Bls12_381 as Pairing>::G2Affine;
 pub type UniPoly381 = DensePolynomial<F>;
 pub type PC = SonicKZG10<Bls12_381, UniPoly381>;
-pub type KZGCommitment = ark_poly_commit::kzg10::Commitment<Bls12_381>;
+pub type KZGCommitment = ark_poly_commit::sonic_pc::Commitment<Bls12_381>;
 pub type UniversalParams = ark_poly_commit::sonic_pc::UniversalParams<Bls12_381>;
 pub type CommitterKey = ark_poly_commit::sonic_pc::CommitterKey<Bls12_381>;
 pub type VerifierKey = ark_poly_commit::sonic_pc::VerifierKey<Bls12_381>;
@@ -48,7 +48,7 @@ pub struct Proof {
     // Commitments needed for verification
     psw_of_x_com: KZGCommitment,
     b_of_x_com: KZGCommitment,
-    w_of_x_com: KZGCommitment,  // Added this field for easier verification
+    // We don't need to store w_of_x_com as we can adjust the commitment from vp.w_of_x_com
 
     // For the secret knowledge part
     sk_q1_com: G1,
@@ -89,31 +89,6 @@ pub fn prepare_cache(n: usize) -> Cache {
     Cache {
         lagrange_polynomials,
     }
-}
-
-pub fn sample_weights(n: usize) -> Vec<F> {
-    let rng = &mut test_rng();
-    (0..n).map(|_| F::rand(rng)).collect()
-}
-
-/// n is the size of the bitmap, and probability is for true or 1.
-pub fn sample_bitmap(n: usize, probability: f64) -> Vec<F> {
-    let rng = &mut test_rng();
-    let mut bitmap = vec![];
-    for _ in 0..n {
-        let bit = rng.gen_bool(probability);
-        bitmap.push(F::from(bit as u8));
-    }
-    bitmap
-}
-
-pub fn sample_secret_keys(num_parties: usize) -> Vec<F> {
-    let mut rng = test_rng();
-    let mut keys = vec![];
-    for _ in 0..num_parties {
-        keys.push(F::rand(&mut rng));
-    }
-    keys
 }
 
 // SonicKZG requires a sponge for Fiat-Shamir
@@ -198,10 +173,14 @@ pub fn setup(
     let (l_comm, _) = PC::commit(&committer_key, &[l_labeled], None).unwrap();
     let l_n_minus_1_of_x_com = l_comm[0].commitment().clone();
 
+    // Compute commitment to sk_of_x
+    let sk_of_x_poly = add_all_sk_l_i(&sk, n);
+    let h_0 = verifier_key.h;
+
     let vp = VerifierPreprocessing {
         n,
         g_0: verifier_key.g,
-        h_0: verifier_key.h,
+        h_0,
         l_n_minus_1_of_x_com,
         w_of_x_com,
         sk_of_x_com: add_all_g2_commitments(&com_sks),
@@ -261,6 +240,18 @@ pub fn prove(pp: &ProverPreprocessing, cache: &Cache, weights: &Vec<F>, bitmap: 
     let t_of_x = psw_of_x.clone() - &psw_of_x_div_ω - &(&w_of_x * &b_of_x);
     let psw_wff_q_of_x = &t_of_x / &z_of_x;
 
+    // L_{n−1}(X) · ParSumW(X) = Z(X) · Q2(X)
+    let t_of_x = &l_n_minus_1_of_x * &psw_of_x;
+    let psw_check_q_of_x = &t_of_x / &z_of_x;
+
+    // b(X) · b(X) − b(X) = Z(X) · Q3(X)
+    let t_of_x = &(&b_of_x * &b_of_x) - &b_of_x;
+
+    // L_{n−1}(X) · (b(X) - 1) = Z(X) · Q4(X)
+    let t_of_x =
+        &l_n_minus_1_of_x * &(&b_of_x - &UniPoly381::from_coefficients_vec(vec![F::one()]));
+    let b_check_q_of_x = &t_of_x / &z_of_x;
+
     // Create labeled polynomials for all our constraints
     let psw_labeled = LabeledPolynomial::new("psw".to_string(), psw_of_x.clone(), None, None);
     let b_labeled = LabeledPolynomial::new("b".to_string(), b_of_x.clone(), None, None);
@@ -277,14 +268,13 @@ pub fn prove(pp: &ProverPreprocessing, cache: &Cache, weights: &Vec<F>, bitmap: 
     // Extract individual commitments
     let psw_com = commitments[0].commitment().clone();
     let b_com = commitments[1].commitment().clone();
-    let w_com = commitments[2].commitment().clone();
 
     // Prepare query points - we need to evaluate at r and r/ω
     let mut query_set = QuerySet::new();
-    query_set.insert(("psw".to_string(), ("r".into(), r)));
-    query_set.insert(("psw".to_string(), ("r/ω".into(), r_div_ω)));
-    query_set.insert(("b".to_string(), ("r".into(), r)));
-    query_set.insert(("w".to_string(), ("r".into(), r)));
+    query_set.insert(("psw".to_string(), ("r".to_string(), r)));
+    query_set.insert(("psw".to_string(), ("r/ω".to_string(), r_div_ω)));
+    query_set.insert(("b".to_string(), ("r".to_string(), r)));
+    query_set.insert(("w".to_string(), ("r".to_string(), r)));
 
     // Generate batch proof for all our polynomials at the query points
     let batch_proof = PC::batch_open(
@@ -318,7 +308,6 @@ pub fn prove(pp: &ProverPreprocessing, cache: &Cache, weights: &Vec<F>, bitmap: 
 
         psw_of_x_com: psw_com,
         b_of_x_com: b_com,
-        w_of_x_com: w_com,  // Added for verification
 
         sk_q1_com,
         sk_q2_com,
@@ -337,36 +326,60 @@ pub fn verify(vp: &VerifierPreprocessing, π: &Proof) -> bool {
     // Compute L_n-1(r) using the relation for Lagrange polynomials
     let ω_pow_n_minus_1 = ω.pow([n - 1]);
     let l_n_minus_1_of_r =
-        (ω_pow_n_minus_1 / F::from(n)) * (vanishing_of_r / (π.r - ω_pow_n_minus_1));
+        (ω_pow_n_minus_1 / F::from(n as u64)) * (vanishing_of_r / (π.r - ω_pow_n_minus_1));
 
     // Verify the polynomial identities
 
     // 1. Verify ParSumW(r) - ParSumW(r/ω) - W(r) · b(r) = Q(r) · (r^n - 1)
     let lhs1 = π.psw_of_r - π.psw_of_r_div_ω - π.w_of_r * π.b_of_r;
-    if (lhs1 != F::zero()) && (vanishing_of_r != F::zero()) && (lhs1 / vanishing_of_r == F::zero()) {
+    if lhs1 != F::zero() && lhs1 / vanishing_of_r == F::zero() {
         return false;
     }
 
-    // 2. Build evaluations map for the query points
+    // 2. Verify Ln-1(r) · ParSumW(r) = Z(r) · Q2(r)
+    let lhs2 = l_n_minus_1_of_r * π.psw_of_r;
+    if lhs2 != F::zero() && lhs2 / vanishing_of_r == F::zero() {
+        return false;
+    }
+
+    // 3. Verify b(r) * b(r) - b(r) = Q(r) · (r^n - 1)
+    let lhs3 = π.b_of_r * π.b_of_r - π.b_of_r;
+    if lhs3 != F::zero() && lhs3 / vanishing_of_r == F::zero() {
+        return false;
+    }
+
+    // 4. Verify Ln-1(r) · (b(r) - 1) = Z(r) · Q4(r)
+    let lhs4 = l_n_minus_1_of_r * (π.b_of_r - F::one());
+    if lhs4 != F::zero() && lhs4 / vanishing_of_r == F::zero() {
+        return false;
+    }
+
+    // 5. Verify the SonicKZG10 batch proof
+
+    // Build evaluations map for the query points
     let mut evaluations = PCEvaluations::new();
     evaluations.insert(("psw".to_string(), π.r), π.psw_of_r);
     evaluations.insert(("psw".to_string(), π.r / ω), π.psw_of_r_div_ω);
     evaluations.insert(("b".to_string(), π.r), π.b_of_r);
     evaluations.insert(("w".to_string(), π.r), π.w_of_r);
 
-    // 3. Prepare labeled commitments
+    // Prepare labeled commitments
     let psw_labeled_comm = LabeledCommitment::new("psw".to_string(), π.psw_of_x_com.clone(), None);
     let b_labeled_comm = LabeledCommitment::new("b".to_string(), π.b_of_x_com.clone(), None);
-    let w_labeled_comm = LabeledCommitment::new("w".to_string(), π.w_of_x_com.clone(), None);
 
-    // 4. Create query set that matches the proof
+    // Adjust w_of_x_com for the weight offset
+    let adjustment = -π.agg_weight;
+    let w_com = adjust_commitment(&vp.w_of_x_com, &vp.l_n_minus_1_of_x_com, adjustment);
+    let w_labeled_comm = LabeledCommitment::new("w".to_string(), w_com, None);
+
+    // Create query set that matches the proof
     let mut query_set = QuerySet::new();
     query_set.insert(("psw".to_string(), ("r".to_string(), π.r)));
     query_set.insert(("psw".to_string(), ("r/ω".to_string(), π.r / ω)));
     query_set.insert(("b".to_string(), ("r".to_string(), π.r)));
     query_set.insert(("w".to_string(), ("r".to_string(), π.r)));
 
-    // 5. Verify the polynomial evaluations
+    // Verify the polynomial evaluations
     let sonic_batch_proof = Vec::from(π.sonic_proof.clone());
     let poly_verifications_ok = PC::batch_check(
         &vp.verifier_key,
@@ -530,18 +543,36 @@ fn add_all_g2_commitments(elements: &Vec<G2>) -> G2 {
     result.into_affine()
 }
 
+fn add_all_sk_l_i(sk: &Vec<F>, n: usize) -> UniPoly381 {
+    let mut result = UniPoly381::zero();
+    for i in 0..n {
+        let l_i = utils::lagrange_poly(n, i);
+        result += &utils::poly_eval_mult_c(&l_i, &sk[i]);
+    }
+    result
+}
+
+fn adjust_commitment(
+    base_comm: &KZGCommitment,
+    adjustment_comm: &KZGCommitment,
+    scalar: F,
+) -> KZGCommitment {
+    let base = <Bls12_381 as Pairing>::G1::from(base_comm.0);
+    let adjustment = <Bls12_381 as Pairing>::G1::from(adjustment_comm.0).mul(scalar);
+    ark_poly_commit::kzg10::Commitment((base + adjustment).into_affine())
+}
+
 fn commit_g2(poly: &UniPoly381, vk: &VerifierKey) -> G2 {
     let coeffs = poly.coeffs();
     let mut result = <Bls12_381 as Pairing>::G2::zero();
 
-    // This is a simplification - ideally we should use the proper SRS
     for (i, c) in coeffs.iter().enumerate() {
         if i == 0 {
             result += vk.h.mul(*c);
         } else if i == 1 {
             result += vk.beta_h.mul(*c);
         }
-        // Higher degree terms would need more SRS elements
+        // For higher powers, we'd need more SRS elements
     }
 
     result.into_affine()
@@ -563,7 +594,7 @@ fn commit_g2_poly(poly: &UniPoly381) -> G2 {
         } else if i == 1 {
             result += beta_h.mul(*c);
         }
-        // Higher degree terms would need more SRS elements
+        // For higher powers, we'd need more SRS elements
     }
 
     result.into_affine()
@@ -575,26 +606,28 @@ fn pairing_product(g1: &G1, g2: &G2) -> ark_ec::pairing::PairingOutput<Bls12_381
 
 pub fn main() {
     use std::time::Instant;
-    let n: usize = 64;
+    let n: usize = 256;
     println!("n = {}", n);
 
-    //contains commonly used objects such as lagrange polynomials
+    let start = Instant::now();
+    // Contains commonly used objects such as lagrange polynomials
     let cache = prepare_cache(n);
 
     // -------------- sample universe specific values ---------------
-    //sample random keys
-    let sk: Vec<F> = sample_secret_keys(n - 1);
-    //sample random weights for each party
-    let weights = sample_weights(n - 1);
+    // Sample random keys
+    let sk: Vec<F> = crate::original_proof_system::sample_secret_keys(n - 1);
+    // Sample random weights for each party
+    let weights = crate::original_proof_system::sample_weights(n - 1);
 
     // -------------- perform universe setup ---------------
-    //run universe setup
+    // Run universe setup
     let (vp, pp) = setup(n, None, &weights, &sk);
 
     // -------------- sample proof specific values ---------------
-    //samples n-1 random bits
-    let bitmap = sample_bitmap(n - 1, 0.9);
+    // Samples n-1 random bits
+    let bitmap = crate::original_proof_system::sample_bitmap(n - 1, 0.9);
 
+    println!("Time elapsed in setup is: {:?}", start.elapsed());
     let start = Instant::now();
     let π = prove(&pp, &cache, &weights, &bitmap);
     let duration = start.elapsed();

@@ -688,8 +688,9 @@ pub fn sample_secret_keys(num_parties: usize) -> Vec<F> {
 // Main function to demo the code
 pub fn main() {
     use std::time::Instant;
-    let n: usize = 64;
+    let n: usize = 256;
     println!("n = {}", n);
+    let start = Instant::now();
 
     // Contains commonly used objects such as lagrange polynomials
     let cache = prepare_cache(n);
@@ -711,6 +712,7 @@ pub fn main() {
     // Samples n-1 random bits
     let bitmap = sample_bitmap(n - 1, 0.9);
 
+    println!("Time elapsed in setup is: {:?}", start.elapsed());
     let start = Instant::now();
     // Generate proof
     let proof = prove(&params, &pp, &cache, &weights, &bitmap);

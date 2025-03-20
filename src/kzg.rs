@@ -4,7 +4,7 @@
 
 use ark_ec::scalar_mul::BatchMulPreprocessing;
 //use ark_ec::AffineRepr;
-use ark_ec::{pairing::Pairing, CurveGroup};
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ec::{scalar_mul::ScalarMul, VariableBaseMSM};
 use ark_ff::{One, PrimeField, UniformRand, Zero};
 use ark_poly::DenseUVPolynomial;
@@ -50,6 +50,9 @@ where
     P: DenseUVPolynomial<E::ScalarField, Point = E::ScalarField>,
     for<'a, 'b> &'a P: Div<&'b P, Output = P>,
     for<'a, 'b> &'a P: Sub<&'b P, Output = P>,
+    for<'a, 'b> &'a P: Mul<E::ScalarField, Output = P>,
+    // G1 has Neg trait
+    E::G1Affine: Neg<Output = E::G1Affine>,
 {
     /// Constructs public parameters when given as input the maximum degree `degree`
     /// for the polynomial commitment scheme.
@@ -72,7 +75,8 @@ where
         if max_degree < 1 {
             return Err(Error::DegreeIsZero);
         }
-        if max_degree.count_ones() != 1 { // i get internal crate errors with non-power-of-2 degrees
+        if max_degree.count_ones() != 1 {
+            // i get internal crate errors with non-power-of-2 degrees
             return Err(Error::DegreeIsNotPowerOf2);
         }
 
@@ -177,6 +181,99 @@ where
         let witness_polynomial = numerator.div(&divisor);
 
         Self::commit_g1(params, &witness_polynomial)
+    }
+
+    pub fn compute_batched_opening_proof<R: RngCore>(
+        params: &UniversalParams<E>,
+        polynomials: &[&P],
+        point: &E::ScalarField,
+        evaluations: &[E::ScalarField],
+        rng: &mut R,
+    ) -> Result<(E::G1Affine, Vec<E::ScalarField>), Error> {
+        if polynomials.len() != evaluations.len() || polynomials.is_empty() {
+            return Err(Error::DegreeIsZero);
+        }
+        
+        // Generate random weights for the linear combination
+        let gammas: Vec<E::ScalarField> = (0..polynomials.len())
+            .map(|_| E::ScalarField::rand(rng))
+            .collect();
+            
+        // Create combined witness polynomial
+        let mut combined_witness_poly = P::zero();
+        
+        for i in 0..polynomials.len() {
+            // (f_i(X) - f_i(z)) / (X - z)
+            let poly = polynomials[i];
+            let eval = evaluations[i];
+            
+            // f_i(X) - f_i(z)
+            let eval_poly = P::from_coefficients_vec(vec![eval]);
+            let numerator = poly.clone().sub(&eval_poly);
+            
+            // (X - z)
+            let divisor = P::from_coefficients_vec(vec![
+                E::ScalarField::zero() - *point, 
+                E::ScalarField::one()
+            ]);
+            
+            // (f_i(X) - f_i(z)) / (X - z)
+            let witness_poly = numerator.div(&divisor);
+            
+            // Add γ_i * witness_i to the combined witness
+            if i == 0 {
+                combined_witness_poly = witness_poly.mul(gammas[i]);
+            } else {
+                combined_witness_poly = combined_witness_poly.add(witness_poly.mul(gammas[i]));
+            }
+        }
+        
+        // Commit to the combined witness polynomial
+        let proof = Self::commit_g1(params, &combined_witness_poly)?;
+        
+        Ok((proof, gammas))
+    }
+    
+    pub fn verify_batched_opening_proof(
+        params: &UniversalParams<E>,
+        commitments: &[E::G1Affine],
+        point: &E::ScalarField,
+        evaluations: &[E::ScalarField],
+        proof: &E::G1Affine,
+        gammas: &[E::ScalarField],
+    ) -> bool {
+        if commitments.len() != evaluations.len() || 
+           evaluations.len() != gammas.len() || 
+           commitments.is_empty() {
+            return false;
+        }
+        
+        // Compute the linear combination of commitments and evaluations
+        let points: Vec<E::G1Affine> = commitments
+            .iter()
+            .zip(evaluations.iter())
+            .zip(gammas.iter())
+            .flat_map(|((comm, eval), gamma)| {
+                // [gamma]·comm - [gamma·eval]·g1
+                let eval_point = params.powers_of_g[0].mul(*eval * *gamma).into_affine();
+                vec![comm.mul(*gamma).into_affine(), eval_point.neg()]
+            })
+            .collect();
+            
+        let scalars = vec![E::ScalarField::one(); points.len()];
+        
+        // Compute: ∑ gamma_i · (comm_i - g^eval_i)
+        let combined_lhs = <<E as Pairing>::G1 as VariableBaseMSM>::msm(
+            &points,
+            &scalars
+        ).unwrap().into_affine();
+        
+        // Compute shift term: h^x - h^r
+        let point_commitment = params.powers_of_h[1] - params.powers_of_h[0].mul(*point).into_affine();
+        
+        // Verify pairing equation
+        E::pairing(combined_lhs, params.powers_of_h[0]) == 
+        E::pairing(*proof, point_commitment)
     }
 }
 
