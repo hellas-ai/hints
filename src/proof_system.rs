@@ -21,9 +21,47 @@ pub type UniPoly381 = DensePolynomial<<Bls12_381 as Pairing>::ScalarField>;
 pub type F = ark_bls12_381::Fr;
 pub type G1 = <Bls12_381 as Pairing>::G1Affine;
 pub type G2 = <Bls12_381 as Pairing>::G2Affine;
-pub type G1Com = CommitmentG1<Bls12_381>;
 
-pub type G2Com = CommitmentG2<Bls12_381>;
+#[derive(Clone)]
+pub struct G1Com {
+    pub com: CommitmentG1<Bls12_381>,
+    pub randomness: Randomness<F, UniPoly381>,
+}
+
+impl G1Com {
+    fn map(&self, f: impl Fn(G1) -> G1) -> Self {
+        G1Com {
+            com: self.com.map(f),
+            randomness: self.randomness.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct G2Com {
+    pub com: CommitmentG2<Bls12_381>,
+    pub randomness: Randomness<F, UniPoly381>,
+}
+
+impl From<(CommitmentG1<Bls12_381>, Randomness<F, UniPoly381>)> for G1Com {
+    fn from(value: (CommitmentG1<Bls12_381>, Randomness<F, UniPoly381>)) -> Self {
+        G1Com {
+            com: value.0,
+            randomness: value.1,
+        }
+    }
+}
+
+impl From<(CommitmentG2<Bls12_381>, Randomness<F, UniPoly381>)> for G2Com {
+    fn from(value: (CommitmentG2<Bls12_381>, Randomness<F, UniPoly381>)) -> Self {
+        G2Com {
+            com: value.0,
+            randomness: value.1,
+        }
+    }
+}
+
+pub type KZGProof = kzg10::Proof<Bls12_381>;
 
 pub struct Proof {
     agg_pk: G1,
@@ -31,12 +69,12 @@ pub struct Proof {
 
     r: F,
 
-    merged_proof: G1,
+    merged_proof: KZGProof,
 
     psw_of_r: F,
 
     psw_of_r_div_ω: F,
-    psw_of_r_div_ω_proof: G1,
+    psw_of_r_div_ω_proof: KZGProof,
     w_of_r: F,
     b_of_r: F,
     psw_wff_q_of_r: F,
@@ -57,7 +95,7 @@ pub struct Proof {
 
 struct ProverPreprocessing {
     n: usize,            //size of the committee as a power of 2
-    pks: Vec<G1>,     //g^sk_i for each party i
+    pks: Vec<G1>,        //g^sk_i for each party i
     q1_coms: Vec<G1Com>, //preprocessed contributions for pssk_q1
     q2_coms: Vec<G1Com>, //preprocessed contributions for pssk_q2
 }
@@ -72,6 +110,7 @@ struct VerifierPreprocessing {
     sk_of_x_com: G2Com, //commitment to the sigma_{i \in [N]} sk_i l_i(x) polynomial
     vanishing_com: G2Com, //commitment to Z(x) = x^n - 1
     x_monomial_com: G2Com, //commentment to f(x) = x
+    vk: kzg10::VerifierKey<Bls12_381>,
 }
 
 struct Cache {
@@ -160,7 +199,7 @@ fn setup(
 
     let powers = &params.powers();
 
-    let w_of_x_com = KZG::commit_g1(&powers, &w_of_x, None, None).unwrap().0;
+    let w_of_x_com = KZG::commit_g1(&powers, &w_of_x, None, None).unwrap();
 
     //allocate space to collect setup material from all n-1 parties
     let mut q1_contributions: Vec<Vec<G1Com>> = vec![];
@@ -187,10 +226,10 @@ fn setup(
     .unwrap();
 
     for (pk_i, com_sk_l_i, q1_i, q2_i) in all_parties_setup {
-        q1_contributions.push(q1_i.clone());
-        q2_contributions.push(q2_i.clone());
-        pks.push(pk_i.0.clone());
-        com_sks.push(com_sk_l_i.clone());
+        q1_contributions.push(q1_i.into());
+        q2_contributions.push(q2_i.into());
+        pks.push(pk_i.com.0);
+        com_sks.push(com_sk_l_i);
     }
 
     let z_of_x = utils::compute_vanishing_poly(n);
@@ -204,12 +243,15 @@ fn setup(
         h_1: params.powers_of_h[1].clone(),
         l_n_minus_1_of_x_com: KZG::commit_g1(&powers, &l_n_minus_1_of_x, None, None)
             .unwrap()
-            .0,
-        w_of_x_com: w_of_x_com,
+            .into(),
+        w_of_x_com: w_of_x_com.into(),
         // combine all sk_i l_i_of_x commitments to get commitment to sk(x)
         sk_of_x_com: add_all_g2(&powers, &com_sks),
-        vanishing_com: KZG::commit_g2(&powers, &z_of_x, None, None).unwrap().0,
-        x_monomial_com: KZG::commit_g2(&powers, &x_monomial, None, None).unwrap().0,
+        vanishing_com: KZG::commit_g2(&powers, &z_of_x, None, None).unwrap().into(),
+        x_monomial_com: KZG::commit_g2(&powers, &x_monomial, None, None)
+            .unwrap()
+            .into(),
+        vk: params.vk(),
     };
 
     let pp = ProverPreprocessing {
@@ -299,14 +341,18 @@ fn prove(
     let b_check_q_of_r_proof =
         KZG::open(&powers, &b_check_q_of_x, r, &Randomness::empty()).unwrap();
 
-    let merged_proof: G1 = (psw_of_r_proof.w
-        + w_of_r_proof.w.mul(r.pow([1]))
-        + b_of_r_proof.w.mul(r.pow([2]))
-        + psw_wff_q_of_r_proof.w.mul(r.pow([3]))
-        + psw_check_q_of_r_proof.w.mul(r.pow([4]))
-        + b_wff_q_of_r_proof.w.mul(r.pow([5]))
-        + b_check_q_of_r_proof.w.mul(r.pow([6])))
-    .into();
+    let merged_proof = kzg10::Proof::combine(
+        [
+            &psw_of_r_proof,
+            &w_of_r_proof,
+            &b_of_r_proof,
+            &psw_wff_q_of_r_proof,
+            &psw_check_q_of_r_proof,
+            &b_wff_q_of_r_proof,
+            &b_check_q_of_r_proof,
+        ],
+        r,
+    );
 
     Proof {
         agg_pk: agg_pk.clone(),
@@ -316,8 +362,7 @@ fn prove(
 
         psw_of_r_div_ω: psw_of_x.evaluate(&r_div_ω),
         psw_of_r_div_ω_proof: KZG::open(&powers, &psw_of_x, r_div_ω, &Randomness::empty())
-            .unwrap()
-            .w,
+            .unwrap(),
 
         psw_of_r: psw_of_x.evaluate(&r),
         w_of_r: w_of_x.evaluate(&r),
@@ -327,22 +372,24 @@ fn prove(
         b_wff_q_of_r: b_wff_q_of_x.evaluate(&r),
         b_check_q_of_r: b_check_q_of_x.evaluate(&r),
 
-        merged_proof: merged_proof.into(),
+        merged_proof: merged_proof,
 
-        psw_of_x_com: KZG::commit_g1(&powers, &psw_of_x, None, None).unwrap().0,
-        b_of_x_com: KZG::commit_g1(&powers, &b_of_x, None, None).unwrap().0,
+        psw_of_x_com: KZG::commit_g1(&powers, &psw_of_x, None, None)
+            .unwrap()
+            .into(),
+        b_of_x_com: KZG::commit_g1(&powers, &b_of_x, None, None).unwrap().into(),
         psw_wff_q_of_x_com: KZG::commit_g1(&powers, &psw_wff_q_of_x, None, None)
             .unwrap()
-            .0,
+            .into(),
         psw_check_q_of_x_com: KZG::commit_g1(&powers, &psw_check_q_of_x, None, None)
             .unwrap()
-            .0,
+            .into(),
         b_wff_q_of_x_com: KZG::commit_g1(&powers, &b_wff_q_of_x, None, None)
             .unwrap()
-            .0,
+            .into(),
         b_check_q_of_x_com: KZG::commit_g1(&powers, &b_check_q_of_x, None, None)
             .unwrap()
-            .0,
+            .into(),
 
         sk_q1_com: sk_q1_com,
         sk_q2_com: sk_q2_com,
@@ -359,7 +406,7 @@ fn verify_opening(
     let eval_com: G1 = vp.g_0.clone().mul(evaluation).into();
     let point_com: G2 = vp.h_0.clone().mul(point).into();
 
-    let lhs = <Bls12_381 as Pairing>::pairing(commitment.0 - eval_com, vp.h_0);
+    let lhs = <Bls12_381 as Pairing>::pairing(commitment.com.0 - eval_com, vp.h_0);
     let rhs = <Bls12_381 as Pairing>::pairing(opening_proof.clone(), vp.h_1 - point_com);
     assert_eq!(lhs, rhs);
 }
@@ -367,28 +414,46 @@ fn verify_opening(
 fn verify_openings(vp: &VerifierPreprocessing, π: &Proof) {
     //adjust the w_of_x_com
     let adjustment = F::from(0) - π.agg_weight;
-    let adjustment_com = vp.l_n_minus_1_of_x_com.map(|x| (x * adjustment).into_affine());
-    let w_of_x_com: G1Com = vp.w_of_x_com.map(|x| x.add(adjustment_com.0).into_affine());
+    let adjustment_com = vp
+        .l_n_minus_1_of_x_com
+        .map(|x| (x * adjustment).into_affine());
+    let w_of_x_com: G1Com = vp
+        .w_of_x_com
+        .map(|x| x.add(adjustment_com.com.0).into_affine());
 
-    let psw_of_r_argument = π.psw_of_x_com.map(|x| x.sub(vp.g_0 * π.psw_of_r).into_affine());
+    let psw_of_r_argument = π
+        .psw_of_x_com
+        .map(|x| x.sub(vp.g_0 * π.psw_of_r).into_affine());
     let w_of_r_argument = w_of_x_com.map(|x| x.sub(vp.g_0 * π.w_of_r).into_affine());
     let b_of_r_argument = π.b_of_x_com.map(|x| x.sub(vp.g_0 * π.b_of_r).into_affine());
-    let psw_wff_q_of_r_argument = π.psw_wff_q_of_x_com.map(|x| x.sub(vp.g_0 * π.psw_wff_q_of_r).into_affine());
-    let psw_check_q_of_r_argument = π.psw_check_q_of_x_com.map(|x| x.sub(vp.g_0 * π.psw_check_q_of_r).into_affine());
-    let b_wff_q_of_r_argument = π.b_wff_q_of_x_com.map(|x| x.sub(vp.g_0 * π.b_wff_q_of_r).into_affine());
-    let b_check_q_of_r_argument = π.b_check_q_of_x_com.map(|x| x.sub(vp.g_0 * π.b_check_q_of_r).into_affine());
+    let psw_wff_q_of_r_argument = π
+        .psw_wff_q_of_x_com
+        .map(|x| x.sub(vp.g_0 * π.psw_wff_q_of_r).into_affine());
+    let psw_check_q_of_r_argument = π
+        .psw_check_q_of_x_com
+        .map(|x| x.sub(vp.g_0 * π.psw_check_q_of_r).into_affine());
+    let b_wff_q_of_r_argument = π
+        .b_wff_q_of_x_com
+        .map(|x| x.sub(vp.g_0 * π.b_wff_q_of_r).into_affine());
+    let b_check_q_of_r_argument = π
+        .b_check_q_of_x_com
+        .map(|x| x.sub(vp.g_0 * π.b_check_q_of_r).into_affine());
 
-    let merged_argument: G1 = (psw_of_r_argument.0
-        + w_of_r_argument.0 * π.r.pow([1])
-        + b_of_r_argument.0 * π.r.pow([2])
-        + psw_wff_q_of_r_argument.0 * π.r.pow([3])
-        + psw_check_q_of_r_argument.0 * π.r.pow([4])
-        + b_wff_q_of_r_argument.0 * π.r.pow([5])
-        + b_check_q_of_r_argument.0 * π.r.pow([6]))
-    .into_affine();
+    let merged_argument = CommitmentG1::combine(
+        [
+            &psw_of_r_argument.com,
+            &w_of_r_argument.com,
+            &b_of_r_argument.com,
+            &psw_wff_q_of_r_argument.com,
+            &psw_check_q_of_r_argument.com,
+            &b_wff_q_of_r_argument.com,
+            &b_check_q_of_r_argument.com,
+        ],
+        π.r,
+    );
 
-    let lhs = <Bls12_381 as Pairing>::pairing(merged_argument, vp.h_0);
-    let rhs = <Bls12_381 as Pairing>::pairing(π.merged_proof, vp.h_1 - vp.h_0 * π.r);
+    let lhs = <Bls12_381 as Pairing>::pairing(merged_argument.0, vp.h_0);
+    let rhs = <Bls12_381 as Pairing>::pairing(π.merged_proof.w, vp.h_1 - vp.h_0 * π.r);
     assert_eq!(lhs, rhs);
 
     let domain = Radix2EvaluationDomain::<F>::new(vp.n as usize).unwrap();
@@ -399,7 +464,7 @@ fn verify_openings(vp: &VerifierPreprocessing, π: &Proof) {
         &π.psw_of_x_com,
         &r_div_ω,
         &π.psw_of_r_div_ω,
-        &π.psw_of_r_div_ω_proof,
+        &π.psw_of_r_div_ω_proof.w,
     );
 }
 
@@ -419,9 +484,9 @@ fn verify(vp: &VerifierPreprocessing, π: &Proof) {
         (ω_pow_n_minus_1 / F::from(n)) * (vanishing_of_r / (π.r - ω_pow_n_minus_1));
 
     //assert polynomial identity for the secret part
-    let lhs = <Bls12_381 as Pairing>::pairing(&π.b_of_x_com.0, &vp.sk_of_x_com.0);
-    let x1 = <Bls12_381 as Pairing>::pairing(&π.sk_q1_com.0, &vp.vanishing_com.0);
-    let x2 = <Bls12_381 as Pairing>::pairing(&π.sk_q2_com.0, &vp.x_monomial_com.0);
+    let lhs = <Bls12_381 as Pairing>::pairing(&π.b_of_x_com.com.0, &vp.sk_of_x_com.com.0);
+    let x1 = <Bls12_381 as Pairing>::pairing(&π.sk_q1_com.com.0, &vp.vanishing_com.com.0);
+    let x2 = <Bls12_381 as Pairing>::pairing(&π.sk_q2_com.com.0, &vp.x_monomial_com.com.0);
     let x3 = <Bls12_381 as Pairing>::pairing(&π.agg_pk, &vp.h_0);
     let rhs = x1 + x2 + x3;
     assert_eq!(lhs, rhs);
@@ -467,6 +532,7 @@ fn compute_apk(pp: &ProverPreprocessing, bitmap: &Vec<F>, cache: &Cache) -> G1 {
 }
 
 fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1Com>>) -> Vec<G1Com> {
+    // TODOO: deal with the randomness...
     let n = q1_contributions.len();
     let mut q1_coms = vec![];
 
@@ -475,7 +541,7 @@ fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1Com>>) -> Vec<G1Com>
         for j in 0..n {
             if i != j {
                 let party_j_contribution = q1_contributions[j][i].clone();
-                party_i_q1_com += (F::ONE, &party_j_contribution);
+                party_i_q1_com.com += (F::ONE, &party_j_contribution.com);
             }
         }
         q1_coms.push(party_i_q1_com);
@@ -491,7 +557,7 @@ fn filter_and_add(
     let mut com = get_zero_poly_com_g1(&powers);
     for i in 0..bitmap.len() {
         if bitmap[i] == F::from(1) {
-            com.add_assign((F::ONE, &elements[i]));
+            com.com.add_assign((F::ONE, &elements[i].com));
         }
     }
     com
@@ -500,19 +566,23 @@ fn filter_and_add(
 fn add_all_g2(powers: &kzg10::Powers<Bls12_381>, elements: &Vec<G2Com>) -> G2Com {
     let mut com = get_zero_poly_com_g2(&powers);
     for i in 0..elements.len() {
-        com += (F::ONE, &elements[i]);
+        com.com.add_assign((F::ONE, &elements[i].com));
     }
     com
 }
 
 fn get_zero_poly_com_g1(powers: &kzg10::Powers<'_, Bls12_381>) -> G1Com {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
-    KZG::commit_g1(&powers, &zero_poly, None, None).unwrap().0
+    KZG::commit_g1(&powers, &zero_poly, None, None)
+        .unwrap()
+        .into()
 }
 
 fn get_zero_poly_com_g2(powers: &kzg10::Powers<'_, Bls12_381>) -> G2Com {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
-    KZG::commit_g2(&powers, &zero_poly, None, None).unwrap().0
+    KZG::commit_g2(&powers, &zero_poly, None, None)
+        .unwrap()
+        .into()
 }
 
 pub(crate) fn sample_secret_keys(num_parties: usize) -> Vec<F> {
@@ -576,9 +646,9 @@ fn party_i_setup_material(
         let f = num.div(&z_of_x);
         let sk_times_f = utils::poly_eval_mult_c(&f, &sk_i);
 
-        let com = KZG::commit_g1(&powers, &sk_times_f, None, None).unwrap().0;
+        let com = KZG::commit_g1(&powers, &sk_times_f, None, None).unwrap();
 
-        q1_material.push(com);
+        q1_material.push(com.into());
     }
 
     let x_monomial = utils::compute_x_monomial();
@@ -588,16 +658,14 @@ fn party_i_setup_material(
     let den = x_monomial;
     let f = num.div(&den);
     let sk_times_f = utils::poly_eval_mult_c(&f, &sk_i);
-    let q2_com = KZG::commit_g1(&powers, &sk_times_f, None, None).unwrap().0;
+    let q2_com = KZG::commit_g1(&powers, &sk_times_f, None, None).unwrap();
 
     //release my public key
     let sk_as_poly = utils::compute_constant_poly(&sk_i);
-    let pk = KZG::commit_g1(&powers, &sk_as_poly, None, None).unwrap().0;
+    let pk = KZG::commit_g1(&powers, &sk_as_poly, None, None).unwrap();
 
     let sk_times_l_i_of_x = utils::poly_eval_mult_c(&l_i_of_x, &sk_i);
-    let com_sk_l_i = KZG::commit_g2(&powers, &sk_times_l_i_of_x, None, None)
-        .unwrap()
-        .0;
+    let com_sk_l_i = KZG::commit_g2(&powers, &sk_times_l_i_of_x, None, None).unwrap();
 
-    (pk, com_sk_l_i, q1_material, q2_com)
+    (pk.into(), com_sk_l_i.into(), q1_material, q2_com.into())
 }
