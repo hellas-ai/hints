@@ -31,7 +31,7 @@ jobs:
         uses: taiki-e/install-action@cargo-nextest
 
       - name: Run sccache-cache
-              uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.7
       # Run Clippy (linting)
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
