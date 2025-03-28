@@ -157,7 +157,6 @@ fn deserialize_points<T: AsRef<str>, G: AffineRepr, const N: usize>(
         let g_hex_str_without_0x = g_hex_str
             .strip_prefix("0x")
             .ok_or(TrustedSetupError::BadHexPrefix)?;
-        println!("g_hex_str_without_0x: {}", g_hex_str_without_0x);
         let g_point_bytes: [u8; N] = hex::decode(g_hex_str_without_0x)?
             .try_into()
             .map_err(|_| TrustedSetupError::IntoFailed)

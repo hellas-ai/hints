@@ -6,8 +6,8 @@ use ark_poly::{univariate::DensePolynomial, Polynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{One, Zero};
 
-use crate::kzg::*;
 use crate::utils::{self};
+use crate::{kzg::*, PublicKey};
 
 mod hints;
 mod prover;
@@ -82,7 +82,11 @@ pub struct Cache {
     pub lagrange_coms_g2: Vec<G2>,
 }
 
-fn compute_apk(all_pks: &[G1], all_l_polys: &Vec<DensePolynomial<F>>, full_bitmap: &[F]) -> G1 {
+fn compute_apk(
+    all_pks: &[PublicKey],
+    all_l_polys: &Vec<DensePolynomial<F>>,
+    full_bitmap: &[F],
+) -> G1 {
     let n = full_bitmap.len();
     assert_eq!(all_pks.len(), n, "compute_apk pks length mismatch");
     assert!(
@@ -90,6 +94,7 @@ fn compute_apk(all_pks: &[G1], all_l_polys: &Vec<DensePolynomial<F>>, full_bitma
         "compute_apk l_polys length mismatch"
     );
 
+    let unwrapped_pks: Vec<G1> = all_pks.iter().map(|pk| pk.0).collect();
     let exponents: Vec<F> = (0..n)
         .map(|i| {
             let l_i_of_x = &all_l_polys[i];
@@ -102,7 +107,7 @@ fn compute_apk(all_pks: &[G1], all_l_polys: &Vec<DensePolynomial<F>>, full_bitma
         })
         .collect();
 
-    <<Curve as Pairing>::G1 as VariableBaseMSM>::msm(all_pks, &exponents)
+    <<Curve as Pairing>::G1 as VariableBaseMSM>::msm(&unwrapped_pks, &exponents)
         .expect("MSM failed in compute_apk")
         .into_affine()
 }

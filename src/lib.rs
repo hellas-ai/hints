@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use ark_crypto_primitives::crh::sha256::Sha256;
 use ark_ec::{
     bls12::Bls12Config, hashing::map_to_curve_hasher::MapToCurveBasedHasher, pairing::Pairing,
@@ -77,15 +79,31 @@ impl From<trusted_setup::TrustedSetupError> for HintsError {
 impl std::error::Error for HintsError {}
 
 /// BLS Secret Key
-#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, CanonicalSerialize, CanonicalDeserialize,
+)]
 pub struct SecretKey(pub F);
 
+impl SecretKey {
+    pub fn random(rng: &mut impl RngCore) -> Self {
+        Self(F::rand(rng))
+    }
+
+    pub fn public(&self, gd: &GlobalData) -> PublicKey {
+        PublicKey((gd.params.powers_of_g[0] * self.0).into_affine())
+    }
+
+    pub fn sign(&self, msg: &[u8]) -> PartialSignature {
+        sign(self, msg)
+    }
+}
+
 /// BLS Public Key
-#[derive(Clone, Debug, PartialEq, Eq, Copy, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PublicKey(pub G1);
 
 /// BLS Partial Signature
-#[derive(Clone, Debug, PartialEq, Eq, Copy, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PartialSignature(pub G2);
 
 /// Final Aggregated Signature
@@ -97,6 +115,12 @@ pub struct Signature {
     pub threshold: F,
     /// The SNARK proof π
     pub proof: Proof,
+}
+
+impl Signature {
+    pub fn verify(&self, crs: &VerifierKey, msg: &[u8]) -> Result<bool, HintsError> {
+        verify_aggregate(crs, &self, msg)
+    }
 }
 
 /// Setup: Generate the Common Reference String (CRS) for a maximum degree.
@@ -155,7 +179,7 @@ pub fn sign(sk: &SecretKey, msg: &[u8]) -> PartialSignature {
 /// Verify a BLS partial signature.
 pub fn partial_verify(
     crs: &GlobalData,
-    pk: &G1,
+    pk: &PublicKey,
     msg: &[u8],
     partial_sig: &PartialSignature,
 ) -> bool {
@@ -168,7 +192,7 @@ pub fn partial_verify(
         >,
         G2Projective,
     >(msg);
-    Curve::pairing(pk, h_m) == Curve::pairing(g1, partial_sig.0)
+    Curve::pairing(pk.0, h_m) == Curve::pairing(g1, partial_sig.0)
 }
 
 /// Aggregate partial signatures and generate the final signature with proof.
@@ -180,7 +204,7 @@ pub fn sign_aggregate(
     weights: Vec<F>,
     msg: &[u8],
 ) -> Result<Signature, HintsError> {
-    let n = ak.n;
+    let n = ak.domain_max;
     let mut bitmap = vec![F::zero(); n - 1];
     let mut valid_sigs = Vec::new();
     let mut signer_indices = Vec::new();
@@ -262,6 +286,34 @@ pub fn verify_aggregate(vp: &VerifierKey, sig: &Signature, msg: &[u8]) -> Result
     }
 
     Ok(true)
+}
+
+impl AggregationKey {
+    pub fn prove(
+        &self,
+        gd: &GlobalData,
+        weights: Vec<F>,
+        bitmap: Vec<F>,
+    ) -> Result<Proof, HintsError> {
+        prove(&gd.params, &gd.cache, self, weights, bitmap)
+    }
+
+    pub fn aggregate(
+        &self,
+        gd: &GlobalData,
+        threshold: F,
+        partial_sigs: &[(usize, PartialSignature)],
+        weights: Vec<F>,
+        msg: &[u8],
+    ) -> Result<Signature, HintsError> {
+        crate::sign_aggregate(gd, self, threshold, partial_sigs, weights, msg)
+    }
+}
+
+impl VerifierKey {
+    pub fn verify_aggregate(&self, sig: &crate::Signature, msg: &[u8]) -> Result<bool, HintsError> {
+        crate::verify_aggregate(self, sig, msg)
+    }
 }
 
 #[cfg(test)]

@@ -1,12 +1,8 @@
-use ark_ec::hashing::HashToCurve;
-use ark_ec::VariableBaseMSM;
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ff::Field;
-use ark_poly::{
-    univariate::DensePolynomial, EvaluationDomain, Evaluations, Polynomial, Radix2EvaluationDomain,
-};
+use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{ops::*, test_rng, One, UniformRand, Zero};
+use ark_std::ops::*;
 
 use crate::HintsError;
 
@@ -15,10 +11,10 @@ use super::*;
 /// Parameters used for verifying proofs.
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct VerifierKey {
-    pub n: usize, //size of the committee as a power of 2
-    pub g_0: G1,  //first element from the KZG SRS over G1
-    pub h_0: G2,  //first element from the KZG SRS over G2
-    pub h_1: G2,  //2nd element from the KZG SRS over G2
+    pub domain_max: usize, //size of the committee as a power of 2
+    pub g_0: G1,           //first element from the KZG SRS over G1
+    pub h_0: G2,           //first element from the KZG SRS over G2
+    pub h_1: G2,           //2nd element from the KZG SRS over G2
     pub l_n_minus_1_of_x_com: G1,
     pub w_of_x_com: G1,
     pub sk_of_x_com: G2, //commitment to the sigma_{i \in [N]} sk_i l_i(x) polynomial
@@ -84,7 +80,7 @@ fn verify_openings(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
 
     lhs_rhs_eq!(lhs, rhs);
 
-    let domain = Radix2EvaluationDomain::<F>::new(vp.n as usize)
+    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max as usize)
         .ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
     let r_div_ω: F = π.r / ω;
@@ -99,7 +95,7 @@ fn verify_openings(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
 
 /// Verify a proof for an aggregated signature.
 pub fn verify_proof(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
-    let domain = Radix2EvaluationDomain::<F>::new(vp.n as usize)
+    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max as usize)
         .ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
 
@@ -107,7 +103,7 @@ pub fn verify_proof(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
         return Ok(false);
     }
 
-    let n: u64 = vp.n as u64;
+    let n: u64 = vp.domain_max as u64;
     let vanishing_of_r: F = π.r.pow([n]) - F::from(1);
 
     // compute L_i(r) using the relation L_i(x) = Z_V(x) / ( Z_V'(x) (x - ω^i) )

@@ -1,14 +1,10 @@
-use ark_ec::hashing::HashToCurve;
-use ark_ec::VariableBaseMSM;
-use ark_ec::{pairing::Pairing, CurveGroup};
+use ark_ec::CurveGroup;
 use ark_ff::Field;
-use ark_poly::{
-    univariate::DensePolynomial, EvaluationDomain, Evaluations, Polynomial, Radix2EvaluationDomain,
-};
+use ark_poly::{EvaluationDomain, Polynomial, Radix2EvaluationDomain};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{ops::*, test_rng, One, UniformRand, Zero};
+use ark_std::{ops::*, test_rng, UniformRand, Zero};
 
-use crate::HintsError;
+use crate::{HintsError, PublicKey};
 
 use super::*;
 
@@ -47,10 +43,10 @@ pub struct Proof {
 /// Parameters used for aggregating proofs.
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct AggregationKey {
-    pub n: usize,         //size of the committee as a power of 2
-    pub pks: Vec<G1>,     //g^sk_i for each party i
-    pub q1_coms: Vec<G1>, //preprocessed contributions for pssk_q1
-    pub q2_coms: Vec<G1>, //preprocessed contributions for pssk_q2
+    pub domain_max: usize,   //size of the committee as a power of 2
+    pub pks: Vec<PublicKey>, //g^sk_i for each party i
+    pub q1_coms: Vec<G1>,    //preprocessed contributions for pssk_q1
+    pub q2_coms: Vec<G1>,    //preprocessed contributions for pssk_q2
     pub failed_hint_indices: Vec<usize>,
 }
 
@@ -63,7 +59,7 @@ pub fn prove(
     bitmap: Vec<F>,
 ) -> Result<Proof, HintsError> {
     // compute the nth root of unity
-    let n = ak.n;
+    let n = ak.domain_max;
 
     if weights.len() != n - 1 || bitmap.len() != n - 1 {
         return Err(HintsError::InvalidInput(format!(
@@ -123,7 +119,7 @@ pub fn prove(
     let mut bitmap_full = bitmap.clone(); // Starts with n-1 elements
     bitmap_full.push(bitmap_aug); // Add the n-th element (which is 1)
 
-    let pk_aug = (params.powers_of_g[0] * F::zero()).into_affine(); // Identity/Zero Point
+    let pk_aug = PublicKey((params.powers_of_g[0] * F::zero()).into_affine()); // Identity/Zero Point
     let mut pks_full = ak.pks.clone(); // Starts with n-1 pks
     pks_full.push(pk_aug); // Add the n-th pk
 

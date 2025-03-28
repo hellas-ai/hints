@@ -3,18 +3,17 @@ use core::hint::black_box;
 use hints::snark::*;
 use hints::*;
 
-use ark_ec::CurveGroup;
 use ark_std::rand::Rng;
 use ark_std::*;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-fn sample_secret_keys(num_parties: usize) -> Vec<F> {
+fn sample_secret_keys(num_parties: usize) -> Vec<SecretKey> {
     let mut rng = test_rng();
     let mut keys = vec![];
     for _ in 0..num_parties {
-        keys.push(F::rand(&mut rng));
+        keys.push(SecretKey::random(&mut rng));
     }
     keys
 }
@@ -50,13 +49,9 @@ pub fn main() {
 
     // -------------- sample universe specific values ---------------
     //sample random keys
-    let sk: Vec<F> = sample_secret_keys(n - 1);
+    let sk: Vec<SecretKey> = sample_secret_keys(n - 1);
 
-    let pks: Vec<G1> = sk
-        .iter()
-        .map(|sk| gd.params.powers_of_g[0] * sk)
-        .map(|e| e.into_affine())
-        .collect();
+    let pks: Vec<PublicKey> = sk.iter().map(|sk| sk.public(&gd)).collect();
 
     //sample random weights for each party
     let weights = sample_weights(n - 1);
@@ -114,7 +109,7 @@ pub fn main() {
     let partials: Vec<(usize, PartialSignature)> = sk
         .iter()
         .enumerate()
-        .map(|(i, sk)| (i, sign(&SecretKey(*sk), b"hello")))
+        .map(|(i, sk)| (i, sign(&sk, b"hello")))
         .collect();
     end_timer!(signing);
 
