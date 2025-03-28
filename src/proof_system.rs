@@ -10,11 +10,8 @@ use ark_poly::{
 use ark_std::rand::Rng;
 use ark_std::{ops::*, test_rng, UniformRand};
 
+use crate::kzg::*;
 use crate::utils;
-use ark_poly_commit::{
-    kzg10::{self, *},
-    PCCommitmentState,
-};
 
 pub type KZG = KZG10<Bls12_381, UniPoly381>;
 pub type UniPoly381 = DensePolynomial<<Bls12_381 as Pairing>::ScalarField>;
@@ -22,59 +19,18 @@ pub type F = ark_bls12_381::Fr;
 pub type G1 = <Bls12_381 as Pairing>::G1Affine;
 pub type G2 = <Bls12_381 as Pairing>::G2Affine;
 
-#[derive(Clone)]
-pub struct G1Com {
-    pub com: CommitmentG1<Bls12_381>,
-    pub randomness: Randomness<F, UniPoly381>,
-}
-
-impl G1Com {
-    fn map(&self, f: impl Fn(G1) -> G1) -> Self {
-        G1Com {
-            com: self.com.map(f),
-            randomness: self.randomness.clone(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct G2Com {
-    pub com: CommitmentG2<Bls12_381>,
-    pub randomness: Randomness<F, UniPoly381>,
-}
-
-impl From<(CommitmentG1<Bls12_381>, Randomness<F, UniPoly381>)> for G1Com {
-    fn from(value: (CommitmentG1<Bls12_381>, Randomness<F, UniPoly381>)) -> Self {
-        G1Com {
-            com: value.0,
-            randomness: value.1,
-        }
-    }
-}
-
-impl From<(CommitmentG2<Bls12_381>, Randomness<F, UniPoly381>)> for G2Com {
-    fn from(value: (CommitmentG2<Bls12_381>, Randomness<F, UniPoly381>)) -> Self {
-        G2Com {
-            com: value.0,
-            randomness: value.1,
-        }
-    }
-}
-
-pub type KZGProof = kzg10::Proof<Bls12_381>;
-
 pub struct Proof {
     agg_pk: G1,
     agg_weight: F,
 
     r: F,
 
-    merged_proof: KZGProof,
+    merged_proof: G1,
 
     psw_of_r: F,
 
     psw_of_r_div_ω: F,
-    psw_of_r_div_ω_proof: KZGProof,
+    psw_of_r_div_ω_proof: G1,
     w_of_r: F,
     b_of_r: F,
     psw_wff_q_of_r: F,
@@ -82,38 +38,37 @@ pub struct Proof {
     b_wff_q_of_r: F,
     b_check_q_of_r: F,
 
-    psw_of_x_com: G1Com,
-    b_of_x_com: G1Com,
-    psw_wff_q_of_x_com: G1Com,
-    psw_check_q_of_x_com: G1Com,
-    b_wff_q_of_x_com: G1Com,
-    b_check_q_of_x_com: G1Com,
+    psw_of_x_com: G1,
+    b_of_x_com: G1,
+    psw_wff_q_of_x_com: G1,
+    psw_check_q_of_x_com: G1,
+    b_wff_q_of_x_com: G1,
+    b_check_q_of_x_com: G1,
 
-    sk_q1_com: G1Com,
-    sk_q2_com: G1Com,
+    sk_q1_com: G1,
+    sk_q2_com: G1,
 }
 
-struct ProverPreprocessing {
-    n: usize,            //size of the committee as a power of 2
-    pks: Vec<G1>,        //g^sk_i for each party i
-    q1_coms: Vec<G1Com>, //preprocessed contributions for pssk_q1
-    q2_coms: Vec<G1Com>, //preprocessed contributions for pssk_q2
+pub struct ProverPreprocessing {
+    n: usize,         //size of the committee as a power of 2
+    pks: Vec<G1>,     //g^sk_i for each party i
+    q1_coms: Vec<G1>, //preprocessed contributions for pssk_q1
+    q2_coms: Vec<G1>, //preprocessed contributions for pssk_q2
 }
 
-struct VerifierPreprocessing {
+pub struct VerifierPreprocessing {
     n: usize, //size of the committee as a power of 2
     g_0: G1,  //first element from the KZG SRS over G1
     h_0: G2,  //first element from the KZG SRS over G2
     h_1: G2,  //2nd element from the KZG SRS over G2
-    l_n_minus_1_of_x_com: G1Com,
-    w_of_x_com: G1Com,
-    sk_of_x_com: G2Com, //commitment to the sigma_{i \in [N]} sk_i l_i(x) polynomial
-    vanishing_com: G2Com, //commitment to Z(x) = x^n - 1
-    x_monomial_com: G2Com, //commentment to f(x) = x
-    vk: kzg10::VerifierKey<Bls12_381>,
+    l_n_minus_1_of_x_com: G1,
+    w_of_x_com: G1,
+    sk_of_x_com: G2,    //commitment to the sigma_{i \in [N]} sk_i l_i(x) polynomial
+    vanishing_com: G2,  //commitment to Z(x) = x^n - 1
+    x_monomial_com: G2, //commentment to f(x) = x
 }
 
-struct Cache {
+pub struct Cache {
     lagrange_polynomials: Vec<DensePolynomial<F>>,
 }
 
@@ -155,7 +110,7 @@ pub fn main() {
     // -------------- sample one-time SRS ---------------
     //run KZG setup
     let rng = &mut test_rng();
-    let params = KZG::setup(n, true, rng).expect("Setup failed");
+    let params = KZG::setup(n, rng).expect("Setup failed");
 
     // -------------- sample universe specific values ---------------
     //sample random keys
@@ -182,7 +137,7 @@ pub fn main() {
     println!("Time elapsed in verifier is: {:?}", duration);
 }
 
-fn setup(
+pub fn setup(
     n: usize,
     params: &UniversalParams<Bls12_381>,
     weights: &Vec<F>,
@@ -196,16 +151,13 @@ fn setup(
     weights.push(F::from(0));
 
     let w_of_x = compute_poly(&weights);
-
-    let powers = &params.powers();
-
-    let w_of_x_com = KZG::commit_g1(&powers, &w_of_x, None, None).unwrap();
+    let w_of_x_com = KZG::commit_g1(&params, &w_of_x).unwrap();
 
     //allocate space to collect setup material from all n-1 parties
-    let mut q1_contributions: Vec<Vec<G1Com>> = vec![];
-    let mut q2_contributions: Vec<G1Com> = vec![];
+    let mut q1_contributions: Vec<Vec<G1>> = vec![];
+    let mut q2_contributions: Vec<G1> = vec![];
     let mut pks: Vec<G1> = vec![];
-    let mut com_sks: Vec<G2Com> = vec![];
+    let mut com_sks: Vec<G2> = vec![];
 
     //collect the setup phase material from all parties
     let all_parties_setup = crossbeam::scope(|s| {
@@ -214,7 +166,7 @@ fn setup(
             let idx = i.clone();
             let n = n.clone();
             let sk = sk[idx];
-            let thread_i = s.spawn(move |_| party_i_setup_material(&params, powers, n, idx, &sk));
+            let thread_i = s.spawn(move |_| party_i_setup_material(&params, n, idx, &sk));
             threads.push(thread_i);
         }
 
@@ -226,10 +178,10 @@ fn setup(
     .unwrap();
 
     for (pk_i, com_sk_l_i, q1_i, q2_i) in all_parties_setup {
-        q1_contributions.push(q1_i.into());
-        q2_contributions.push(q2_i.into());
-        pks.push(pk_i.com.0);
-        com_sks.push(com_sk_l_i);
+        q1_contributions.push(q1_i.clone());
+        q2_contributions.push(q2_i.clone());
+        pks.push(pk_i.clone());
+        com_sks.push(com_sk_l_i.clone());
     }
 
     let z_of_x = utils::compute_vanishing_poly(n);
@@ -241,17 +193,12 @@ fn setup(
         g_0: params.powers_of_g[0].clone(),
         h_0: params.powers_of_h[0].clone(),
         h_1: params.powers_of_h[1].clone(),
-        l_n_minus_1_of_x_com: KZG::commit_g1(&powers, &l_n_minus_1_of_x, None, None)
-            .unwrap()
-            .into(),
-        w_of_x_com: w_of_x_com.into(),
+        l_n_minus_1_of_x_com: KZG::commit_g1(&params, &l_n_minus_1_of_x).unwrap(),
+        w_of_x_com: w_of_x_com,
         // combine all sk_i l_i_of_x commitments to get commitment to sk(x)
-        sk_of_x_com: add_all_g2(&powers, &com_sks),
-        vanishing_com: KZG::commit_g2(&powers, &z_of_x, None, None).unwrap().into(),
-        x_monomial_com: KZG::commit_g2(&powers, &x_monomial, None, None)
-            .unwrap()
-            .into(),
-        vk: params.vk(),
+        sk_of_x_com: add_all_g2(&params, &com_sks),
+        vanishing_com: KZG::commit_g2(&params, &z_of_x).unwrap(),
+        x_monomial_com: KZG::commit_g2(&params, &x_monomial).unwrap(),
     };
 
     let pp = ProverPreprocessing {
@@ -264,7 +211,7 @@ fn setup(
     (vp, pp)
 }
 
-fn prove(
+pub fn prove(
     params: &UniversalParams<Bls12_381>,
     pp: &ProverPreprocessing,
     cache: &Cache,
@@ -273,7 +220,6 @@ fn prove(
 ) -> Proof {
     // compute the nth root of unity
     let n = pp.n;
-    let powers = params.powers();
 
     //adjust the weights and bitmap polynomials
     let mut weights = weights.clone();
@@ -307,52 +253,43 @@ fn prove(
     let psw_of_x_div_ω = utils::poly_domain_mult_ω(&psw_of_x, &ω_inv);
 
     //ParSumW(X) = ParSumW(X/ω) + W(X) · b(X) + Z(X) · Q1(X)
-    let t_of_x = &psw_of_x - psw_of_x_div_ω - (&w_of_x * &b_of_x);
-    let psw_wff_q_of_x = t_of_x.div(&z_of_x);
+    let t_of_x = psw_of_x.clone() - psw_of_x_div_ω.clone() - (w_of_x.clone() * b_of_x.clone());
+    let psw_wff_q_of_x = t_of_x / z_of_x.clone();
 
     //L_{n−1}(X) · ParSumW(X) = Z(X) · Q2(X)
-    let t_of_x = &l_n_minus_1_of_x * &psw_of_x;
-    let psw_check_q_of_x = t_of_x.div(&z_of_x);
+    let t_of_x = l_n_minus_1_of_x.clone() * psw_of_x.clone();
+    let psw_check_q_of_x = t_of_x / z_of_x.clone();
 
     //b(X) · b(X) − b(X) = Z(X) · Q3(X)
-    let t_of_x = (&b_of_x * &b_of_x) - (&b_of_x);
-    let b_wff_q_of_x = t_of_x.div(&z_of_x);
+    let t_of_x = b_of_x.clone() * b_of_x.clone() - b_of_x.clone();
+    let b_wff_q_of_x = t_of_x / z_of_x.clone();
 
     //L_{n−1}(X) · (b(X) - 1) = Z(X) · Q4(X)
-    let t_of_x = l_n_minus_1_of_x.clone().mul(
-        &b_of_x
-            .clone()
-            .sub(&utils::compute_constant_poly(&F::from(1))),
-    );
-    let b_check_q_of_x = t_of_x.div(&z_of_x);
+    let t_of_x =
+        l_n_minus_1_of_x.clone() * (b_of_x.clone() - utils::compute_constant_poly(&F::from(1)));
+    let b_check_q_of_x = t_of_x / z_of_x.clone();
 
-    let sk_q1_com = filter_and_add(&powers, &pp.q1_coms, &bitmap);
-    let sk_q2_com = filter_and_add(&powers, &pp.q2_coms, &bitmap);
+    let sk_q1_com = filter_and_add(&params, &pp.q1_coms, &bitmap);
+    let sk_q2_com = filter_and_add(&params, &pp.q2_coms, &bitmap);
     let agg_pk = compute_apk(&pp, &bitmap, &cache);
 
-    let psw_of_r_proof = KZG::open(&powers, &psw_of_x, r, &Randomness::empty()).unwrap();
-    let w_of_r_proof = KZG::open(&powers, &w_of_x, r, &Randomness::empty()).unwrap();
-    let b_of_r_proof = KZG::open(&powers, &b_of_x, r, &Randomness::empty()).unwrap();
-    let psw_wff_q_of_r_proof =
-        KZG::open(&powers, &psw_wff_q_of_x, r, &Randomness::empty()).unwrap();
+    let psw_of_r_proof = KZG::compute_opening_proof(&params, &psw_of_x, &r).unwrap();
+    let w_of_r_proof = KZG::compute_opening_proof(&params, &w_of_x, &r).unwrap();
+    let b_of_r_proof = KZG::compute_opening_proof(&params, &b_of_x, &r).unwrap();
+    let psw_wff_q_of_r_proof = KZG::compute_opening_proof(&params, &psw_wff_q_of_x, &r).unwrap();
     let psw_check_q_of_r_proof =
-        KZG::open(&powers, &psw_check_q_of_x, r, &Randomness::empty()).unwrap();
-    let b_wff_q_of_r_proof = KZG::open(&powers, &b_wff_q_of_x, r, &Randomness::empty()).unwrap();
-    let b_check_q_of_r_proof =
-        KZG::open(&powers, &b_check_q_of_x, r, &Randomness::empty()).unwrap();
+        KZG::compute_opening_proof(&params, &psw_check_q_of_x, &r).unwrap();
+    let b_wff_q_of_r_proof = KZG::compute_opening_proof(&params, &b_wff_q_of_x, &r).unwrap();
+    let b_check_q_of_r_proof = KZG::compute_opening_proof(&params, &b_check_q_of_x, &r).unwrap();
 
-    let merged_proof = kzg10::Proof::combine(
-        [
-            &psw_of_r_proof,
-            &w_of_r_proof,
-            &b_of_r_proof,
-            &psw_wff_q_of_r_proof,
-            &psw_check_q_of_r_proof,
-            &b_wff_q_of_r_proof,
-            &b_check_q_of_r_proof,
-        ],
-        r,
-    );
+    let merged_proof: G1 = (psw_of_r_proof
+        + w_of_r_proof.mul(r.pow([1]))
+        + b_of_r_proof.mul(r.pow([2]))
+        + psw_wff_q_of_r_proof.mul(r.pow([3]))
+        + psw_check_q_of_r_proof.mul(r.pow([4]))
+        + b_wff_q_of_r_proof.mul(r.pow([5]))
+        + b_check_q_of_r_proof.mul(r.pow([6])))
+    .into();
 
     Proof {
         agg_pk: agg_pk.clone(),
@@ -361,8 +298,7 @@ fn prove(
         r,
 
         psw_of_r_div_ω: psw_of_x.evaluate(&r_div_ω),
-        psw_of_r_div_ω_proof: KZG::open(&powers, &psw_of_x, r_div_ω, &Randomness::empty())
-            .unwrap(),
+        psw_of_r_div_ω_proof: KZG::compute_opening_proof(&params, &psw_of_x, &r_div_ω).unwrap(),
 
         psw_of_r: psw_of_x.evaluate(&r),
         w_of_r: w_of_x.evaluate(&r),
@@ -372,24 +308,14 @@ fn prove(
         b_wff_q_of_r: b_wff_q_of_x.evaluate(&r),
         b_check_q_of_r: b_check_q_of_x.evaluate(&r),
 
-        merged_proof: merged_proof,
+        merged_proof: merged_proof.into(),
 
-        psw_of_x_com: KZG::commit_g1(&powers, &psw_of_x, None, None)
-            .unwrap()
-            .into(),
-        b_of_x_com: KZG::commit_g1(&powers, &b_of_x, None, None).unwrap().into(),
-        psw_wff_q_of_x_com: KZG::commit_g1(&powers, &psw_wff_q_of_x, None, None)
-            .unwrap()
-            .into(),
-        psw_check_q_of_x_com: KZG::commit_g1(&powers, &psw_check_q_of_x, None, None)
-            .unwrap()
-            .into(),
-        b_wff_q_of_x_com: KZG::commit_g1(&powers, &b_wff_q_of_x, None, None)
-            .unwrap()
-            .into(),
-        b_check_q_of_x_com: KZG::commit_g1(&powers, &b_check_q_of_x, None, None)
-            .unwrap()
-            .into(),
+        psw_of_x_com: KZG::commit_g1(&params, &psw_of_x).unwrap(),
+        b_of_x_com: KZG::commit_g1(&params, &b_of_x).unwrap(),
+        psw_wff_q_of_x_com: KZG::commit_g1(&params, &psw_wff_q_of_x).unwrap(),
+        psw_check_q_of_x_com: KZG::commit_g1(&params, &psw_check_q_of_x).unwrap(),
+        b_wff_q_of_x_com: KZG::commit_g1(&params, &b_wff_q_of_x).unwrap(),
+        b_check_q_of_x_com: KZG::commit_g1(&params, &b_check_q_of_x).unwrap(),
 
         sk_q1_com: sk_q1_com,
         sk_q2_com: sk_q2_com,
@@ -398,7 +324,7 @@ fn prove(
 
 fn verify_opening(
     vp: &VerifierPreprocessing,
-    commitment: &G1Com,
+    commitment: &G1,
     point: &F,
     evaluation: &F,
     opening_proof: &G1,
@@ -406,7 +332,7 @@ fn verify_opening(
     let eval_com: G1 = vp.g_0.clone().mul(evaluation).into();
     let point_com: G2 = vp.h_0.clone().mul(point).into();
 
-    let lhs = <Bls12_381 as Pairing>::pairing(commitment.com.0 - eval_com, vp.h_0);
+    let lhs = <Bls12_381 as Pairing>::pairing(commitment.clone() - eval_com, vp.h_0);
     let rhs = <Bls12_381 as Pairing>::pairing(opening_proof.clone(), vp.h_1 - point_com);
     assert_eq!(lhs, rhs);
 }
@@ -414,46 +340,35 @@ fn verify_opening(
 fn verify_openings(vp: &VerifierPreprocessing, π: &Proof) {
     //adjust the w_of_x_com
     let adjustment = F::from(0) - π.agg_weight;
-    let adjustment_com = vp
-        .l_n_minus_1_of_x_com
-        .map(|x| (x * adjustment).into_affine());
-    let w_of_x_com: G1Com = vp
-        .w_of_x_com
-        .map(|x| x.add(adjustment_com.com.0).into_affine());
+    let adjustment_com = vp.l_n_minus_1_of_x_com.mul(adjustment);
+    let w_of_x_com: G1 = (vp.w_of_x_com + adjustment_com).into();
 
-    let psw_of_r_argument = π
-        .psw_of_x_com
-        .map(|x| x.sub(vp.g_0 * π.psw_of_r).into_affine());
-    let w_of_r_argument = w_of_x_com.map(|x| x.sub(vp.g_0 * π.w_of_r).into_affine());
-    let b_of_r_argument = π.b_of_x_com.map(|x| x.sub(vp.g_0 * π.b_of_r).into_affine());
-    let psw_wff_q_of_r_argument = π
-        .psw_wff_q_of_x_com
-        .map(|x| x.sub(vp.g_0 * π.psw_wff_q_of_r).into_affine());
-    let psw_check_q_of_r_argument = π
-        .psw_check_q_of_x_com
-        .map(|x| x.sub(vp.g_0 * π.psw_check_q_of_r).into_affine());
-    let b_wff_q_of_r_argument = π
-        .b_wff_q_of_x_com
-        .map(|x| x.sub(vp.g_0 * π.b_wff_q_of_r).into_affine());
-    let b_check_q_of_r_argument = π
-        .b_check_q_of_x_com
-        .map(|x| x.sub(vp.g_0 * π.b_check_q_of_r).into_affine());
+    let psw_of_r_argument = π.psw_of_x_com - vp.g_0.clone().mul(π.psw_of_r).into_affine();
+    let w_of_r_argument = w_of_x_com - vp.g_0.clone().mul(π.w_of_r).into_affine();
+    let b_of_r_argument = π.b_of_x_com - vp.g_0.clone().mul(π.b_of_r).into_affine();
+    let psw_wff_q_of_r_argument =
+        π.psw_wff_q_of_x_com - vp.g_0.clone().mul(π.psw_wff_q_of_r).into_affine();
+    let psw_check_q_of_r_argument =
+        π.psw_check_q_of_x_com - vp.g_0.clone().mul(π.psw_check_q_of_r).into_affine();
+    let b_wff_q_of_r_argument =
+        π.b_wff_q_of_x_com - vp.g_0.clone().mul(π.b_wff_q_of_r).into_affine();
+    let b_check_q_of_r_argument =
+        π.b_check_q_of_x_com - vp.g_0.clone().mul(π.b_check_q_of_r).into_affine();
 
-    let merged_argument = CommitmentG1::combine(
-        [
-            &psw_of_r_argument.com,
-            &w_of_r_argument.com,
-            &b_of_r_argument.com,
-            &psw_wff_q_of_r_argument.com,
-            &psw_check_q_of_r_argument.com,
-            &b_wff_q_of_r_argument.com,
-            &b_check_q_of_r_argument.com,
-        ],
-        π.r,
+    let merged_argument: G1 = (psw_of_r_argument
+        + w_of_r_argument.mul(π.r.pow([1]))
+        + b_of_r_argument.mul(π.r.pow([2]))
+        + psw_wff_q_of_r_argument.mul(π.r.pow([3]))
+        + psw_check_q_of_r_argument.mul(π.r.pow([4]))
+        + b_wff_q_of_r_argument.mul(π.r.pow([5]))
+        + b_check_q_of_r_argument.mul(π.r.pow([6])))
+    .into_affine();
+
+    let lhs = <Bls12_381 as Pairing>::pairing(merged_argument, vp.h_0);
+    let rhs = <Bls12_381 as Pairing>::pairing(
+        π.merged_proof,
+        vp.h_1 - vp.h_0.clone().mul(π.r).into_affine(),
     );
-
-    let lhs = <Bls12_381 as Pairing>::pairing(merged_argument.0, vp.h_0);
-    let rhs = <Bls12_381 as Pairing>::pairing(π.merged_proof.w, vp.h_1 - vp.h_0 * π.r);
     assert_eq!(lhs, rhs);
 
     let domain = Radix2EvaluationDomain::<F>::new(vp.n as usize).unwrap();
@@ -464,11 +379,11 @@ fn verify_openings(vp: &VerifierPreprocessing, π: &Proof) {
         &π.psw_of_x_com,
         &r_div_ω,
         &π.psw_of_r_div_ω,
-        &π.psw_of_r_div_ω_proof.w,
+        &π.psw_of_r_div_ω_proof,
     );
 }
 
-fn verify(vp: &VerifierPreprocessing, π: &Proof) {
+pub fn verify(vp: &VerifierPreprocessing, π: &Proof) {
     let domain = Radix2EvaluationDomain::<F>::new(vp.n as usize).unwrap();
     let ω: F = domain.group_gen;
 
@@ -484,11 +399,11 @@ fn verify(vp: &VerifierPreprocessing, π: &Proof) {
         (ω_pow_n_minus_1 / F::from(n)) * (vanishing_of_r / (π.r - ω_pow_n_minus_1));
 
     //assert polynomial identity for the secret part
-    let lhs = <Bls12_381 as Pairing>::pairing(&π.b_of_x_com.com.0, &vp.sk_of_x_com.com.0);
-    let x1 = <Bls12_381 as Pairing>::pairing(&π.sk_q1_com.com.0, &vp.vanishing_com.com.0);
-    let x2 = <Bls12_381 as Pairing>::pairing(&π.sk_q2_com.com.0, &vp.x_monomial_com.com.0);
+    let lhs = <Bls12_381 as Pairing>::pairing(&π.b_of_x_com, &vp.sk_of_x_com);
+    let x1 = <Bls12_381 as Pairing>::pairing(&π.sk_q1_com, &vp.vanishing_com);
+    let x2 = <Bls12_381 as Pairing>::pairing(&π.sk_q2_com, &vp.x_monomial_com);
     let x3 = <Bls12_381 as Pairing>::pairing(&π.agg_pk, &vp.h_0);
-    let rhs = x1 + x2 + x3;
+    let rhs = x1.add(x2).add(x3);
     assert_eq!(lhs, rhs);
 
     //assert checks on the public part
@@ -520,7 +435,7 @@ fn compute_apk(pp: &ProverPreprocessing, bitmap: &Vec<F>, cache: &Cache) -> G1 {
     let mut exponents = vec![];
     for i in 0..n {
         //let l_i_of_x = utils::lagrange_poly(n, i);
-        let l_i_of_x = &cache.lagrange_polynomials[i];
+        let l_i_of_x = cache.lagrange_polynomials[i].clone();
         let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
         let active = bitmap[i] == F::from(1);
         exponents.push(if active { l_i_of_0 } else { F::from(0) });
@@ -531,8 +446,7 @@ fn compute_apk(pp: &ProverPreprocessing, bitmap: &Vec<F>, cache: &Cache) -> G1 {
         .into_affine()
 }
 
-fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1Com>>) -> Vec<G1Com> {
-    // TODOO: deal with the randomness...
+fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1>>) -> Vec<G1> {
     let n = q1_contributions.len();
     let mut q1_coms = vec![];
 
@@ -541,7 +455,7 @@ fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1Com>>) -> Vec<G1Com>
         for j in 0..n {
             if i != j {
                 let party_j_contribution = q1_contributions[j][i].clone();
-                party_i_q1_com.com += (F::ONE, &party_j_contribution.com);
+                party_i_q1_com = party_i_q1_com.add(party_j_contribution).into();
             }
         }
         q1_coms.push(party_i_q1_com);
@@ -549,43 +463,35 @@ fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1Com>>) -> Vec<G1Com>
     q1_coms
 }
 
-fn filter_and_add(
-    powers: &kzg10::Powers<Bls12_381>,
-    elements: &Vec<G1Com>,
-    bitmap: &Vec<F>,
-) -> G1Com {
-    let mut com = get_zero_poly_com_g1(&powers);
+fn filter_and_add(params: &UniversalParams<Bls12_381>, elements: &Vec<G1>, bitmap: &Vec<F>) -> G1 {
+    let mut com = get_zero_poly_com_g1(&params);
     for i in 0..bitmap.len() {
         if bitmap[i] == F::from(1) {
-            com.com.add_assign((F::ONE, &elements[i].com));
+            com = com.add(elements[i]).into_affine();
         }
     }
     com
 }
 
-fn add_all_g2(powers: &kzg10::Powers<Bls12_381>, elements: &Vec<G2Com>) -> G2Com {
-    let mut com = get_zero_poly_com_g2(&powers);
+fn add_all_g2(params: &UniversalParams<Bls12_381>, elements: &Vec<G2>) -> G2 {
+    let mut com = get_zero_poly_com_g2(&params);
     for i in 0..elements.len() {
-        com.com.add_assign((F::ONE, &elements[i].com));
+        com = com.add(elements[i]).into_affine();
     }
     com
 }
 
-fn get_zero_poly_com_g1(powers: &kzg10::Powers<'_, Bls12_381>) -> G1Com {
+fn get_zero_poly_com_g1(params: &UniversalParams<Bls12_381>) -> G1 {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
-    KZG::commit_g1(&powers, &zero_poly, None, None)
-        .unwrap()
-        .into()
+    KZG::commit_g1(&params, &zero_poly).unwrap()
 }
 
-fn get_zero_poly_com_g2(powers: &kzg10::Powers<'_, Bls12_381>) -> G2Com {
+fn get_zero_poly_com_g2(params: &UniversalParams<Bls12_381>) -> G2 {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
-    KZG::commit_g2(&powers, &zero_poly, None, None)
-        .unwrap()
-        .into()
+    KZG::commit_g2(&params, &zero_poly).unwrap()
 }
 
-pub(crate) fn sample_secret_keys(num_parties: usize) -> Vec<F> {
+fn sample_secret_keys(num_parties: usize) -> Vec<F> {
     let mut rng = test_rng();
     let mut keys = vec![];
     for _ in 0..num_parties {
@@ -594,7 +500,7 @@ pub(crate) fn sample_secret_keys(num_parties: usize) -> Vec<F> {
     keys
 }
 
-pub(crate) fn compute_poly(v: &Vec<F>) -> DensePolynomial<F> {
+fn compute_poly(v: &Vec<F>) -> DensePolynomial<F> {
     let n = v.len();
     let mut evals = vec![];
     for i in 0..n {
@@ -606,7 +512,7 @@ pub(crate) fn compute_poly(v: &Vec<F>) -> DensePolynomial<F> {
     eval_form.interpolate()
 }
 
-pub(crate) fn compute_psw_poly(weights: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
+fn compute_psw_poly(weights: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
     let n = weights.len();
     let mut parsum = F::from(0);
     let mut evals = vec![];
@@ -623,11 +529,10 @@ pub(crate) fn compute_psw_poly(weights: &Vec<F>, bitmap: &Vec<F>) -> DensePolyno
 
 fn party_i_setup_material(
     params: &UniversalParams<Bls12_381>,
-    powers: &kzg10::Powers<Bls12_381>,
     n: usize,
     i: usize,
     sk_i: &F,
-) -> (G1Com, G2Com, Vec<G1Com>, G1Com) {
+) -> (G1, G2, Vec<G1>, G1) {
     //let us compute the q1 term
     let l_i_of_x = utils::lagrange_poly(n, i);
     let z_of_x = utils::compute_vanishing_poly(n);
@@ -637,35 +542,289 @@ fn party_i_setup_material(
     for j in 0..n {
         let num: DensePolynomial<F>; // = compute_constant_poly(&F::from(0));
         if i == j {
-            num = &(&l_i_of_x * &l_i_of_x) - &l_i_of_x;
+            num = &l_i_of_x * &l_i_of_x - &l_i_of_x;
         } else {
             //cross-terms
             let l_j_of_x = utils::lagrange_poly(n, j);
-            num = &l_j_of_x * &l_i_of_x;
+            num = l_j_of_x * &l_i_of_x;
         }
-        let f = num.div(&z_of_x);
+        let f = num / &z_of_x;
         let sk_times_f = utils::poly_eval_mult_c(&f, &sk_i);
 
-        let com = KZG::commit_g1(&powers, &sk_times_f, None, None).unwrap();
+        let com = KZG::commit_g1(&params, &sk_times_f).expect("commitment failed");
 
-        q1_material.push(com.into());
+        q1_material.push(com);
     }
 
     let x_monomial = utils::compute_x_monomial();
     let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
     let l_i_of_0_poly = utils::compute_constant_poly(&l_i_of_0);
-    let num = &l_i_of_x - &l_i_of_0_poly;
+    let num = &l_i_of_x - l_i_of_0_poly;
     let den = x_monomial;
-    let f = num.div(&den);
-    let sk_times_f = utils::poly_eval_mult_c(&f, &sk_i);
-    let q2_com = KZG::commit_g1(&powers, &sk_times_f, None, None).unwrap();
+    let f = num / den;
+    let sk_times_f = utils::poly_eval_mult_c(&f, sk_i);
+    let q2_com = KZG::commit_g1(params, &sk_times_f).expect("commitment failed");
 
     //release my public key
-    let sk_as_poly = utils::compute_constant_poly(&sk_i);
-    let pk = KZG::commit_g1(&powers, &sk_as_poly, None, None).unwrap();
+    let sk_as_poly = utils::compute_constant_poly(sk_i);
+    let pk = KZG::commit_g1(params, &sk_as_poly).expect("commitment failed");
 
-    let sk_times_l_i_of_x = utils::poly_eval_mult_c(&l_i_of_x, &sk_i);
-    let com_sk_l_i = KZG::commit_g2(&powers, &sk_times_l_i_of_x, None, None).unwrap();
+    let sk_times_l_i_of_x = utils::poly_eval_mult_c(&l_i_of_x, sk_i);
+    let com_sk_l_i = KZG::commit_g2(params, &sk_times_l_i_of_x).expect("commitment failed");
 
-    (pk.into(), com_sk_l_i.into(), q1_material, q2_com.into())
+    (pk, com_sk_l_i, q1_material, q2_com)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn aggregate_sk(sk: &Vec<F>, bitmap: &Vec<F>) -> F {
+        let n = sk.len();
+        let mut agg_sk = F::from(0);
+        for i in 0..sk.len() {
+            let l_i_of_x = utils::lagrange_poly(n, i);
+            let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
+            agg_sk += bitmap[i] * sk[i] * l_i_of_0;
+        }
+        agg_sk
+    }
+
+    fn sanity_test_poly_domain_mult(
+        f_of_x: &DensePolynomial<F>,
+        f_of_ωx: &DensePolynomial<F>,
+        ω: &F,
+    ) {
+        let mut rng = test_rng();
+        let r = F::rand(&mut rng);
+        let ωr: F = ω.clone() * r;
+        assert_eq!(f_of_x.evaluate(&ωr), f_of_ωx.evaluate(&r));
+    }
+
+    fn sanity_test_b(b_of_x: &DensePolynomial<F>, q_of_x: &DensePolynomial<F>) {
+        let mut rng = test_rng();
+        let r = F::rand(&mut rng);
+
+        let n: u64 = (b_of_x.degree() + 1) as u64;
+
+        let b_of_r = b_of_x.evaluate(&r);
+        let q_of_r = q_of_x.evaluate(&r);
+        let vanishing_of_r: F = r.pow([n]) - F::from(1);
+
+        //ParSumW(ωr) − ParSumW(r) − W(ωr) · b(ωr) = Q2(r) · (r^n − 1)
+        let left = b_of_r * b_of_r - b_of_r;
+        let right = q_of_r * vanishing_of_r;
+        //println!("ParSumW(ωr) - ParSumW(r) - W(ωr)·b(ωr) = {:?}", tmp1);
+        //println!("Q(r) · (r^n - 1) = {:?}", tmp2);
+        assert_eq!(left, right);
+    }
+
+    fn sanity_test_psw(
+        w_of_x: &DensePolynomial<F>,
+        b_of_x: &DensePolynomial<F>,
+        psw_of_x: &DensePolynomial<F>,
+        q_of_x: &DensePolynomial<F>,
+    ) {
+        let mut rng = test_rng();
+        let r = F::rand(&mut rng);
+
+        let n: u64 = (b_of_x.degree() + 1) as u64;
+        let domain = Radix2EvaluationDomain::<F>::new(n as usize).unwrap();
+        let ω: F = domain.group_gen;
+        let ω_pow_n_minus_1: F = ω.pow([n - 1]);
+        let ωr: F = ω * r;
+
+        let psw_of_r = psw_of_x.evaluate(&r);
+        let psw_of_ωr = psw_of_x.evaluate(&ωr);
+        let w_of_ωr = w_of_x.evaluate(&ωr);
+        let b_of_ωr = b_of_x.evaluate(&ωr);
+        let q_of_r = q_of_x.evaluate(&r);
+        let vanishing_of_r: F = r.pow([n]) - F::from(1);
+
+        //ParSumW(ωr) − ParSumW(r) − W(ωr) · b(ωr) = Q2(r) · (r^n − 1)
+        let tmp1 = psw_of_ωr - psw_of_r - w_of_ωr * b_of_ωr;
+        let tmp2 = q_of_r * vanishing_of_r;
+        //println!("ParSumW(ωr) - ParSumW(r) - W(ωr)·b(ωr) = {:?}", tmp1);
+        //println!("Q(r) · (r^n - 1) = {:?}", tmp2);
+        assert_eq!(tmp1, tmp2);
+
+        //ParSumW(ωn−1) = 0
+        let psw_of_ω_pow_n_minus_1 = psw_of_x.evaluate(&ω_pow_n_minus_1);
+        //println!("ParSumW(ω^(n-1)) = {:?}", psw_of_ω_pow_n_minus_1);
+        assert_eq!(psw_of_ω_pow_n_minus_1, F::from(0));
+
+        //b(ωn−1) = 1
+        let b_of_ω_pow_n_minus_1 = b_of_x.evaluate(&ω_pow_n_minus_1);
+        assert_eq!(b_of_ω_pow_n_minus_1, F::from(1));
+    }
+
+    #[test]
+    fn sanity_test_public_part() {
+        // compute the nth root of unity
+        //println!("The nth root of unity is: {:?}", ω);
+        //println!("The omega_n_minus_1 of unity is: {:?}", ω.pow([n-1]));
+        //println!("The omega_n of unity is: {:?}", ω_pow_n_minus_1 * ω);
+
+        let weights: Vec<F> = vec![
+            F::from(2),
+            F::from(3),
+            F::from(4),
+            F::from(5),
+            F::from(4),
+            F::from(3),
+            F::from(2),
+            F::from(0) - F::from(15),
+        ];
+        let bitmap: Vec<F> = vec![
+            F::from(1),
+            F::from(1),
+            F::from(0),
+            F::from(1),
+            F::from(0),
+            F::from(1),
+            F::from(1),
+            F::from(1),
+        ];
+
+        let n: u64 = bitmap.len() as u64;
+        let domain = Radix2EvaluationDomain::<F>::new(n as usize).unwrap();
+        let ω: F = domain.group_gen;
+
+        let w_of_x = compute_poly(&weights);
+        let w_of_ωx = utils::poly_domain_mult_ω(&w_of_x, &ω);
+
+        let b_of_x = compute_poly(&bitmap);
+        let b_of_ωx = utils::poly_domain_mult_ω(&b_of_x, &ω);
+
+        let psw_of_x = compute_psw_poly(&weights, &bitmap);
+        let psw_of_ωx = utils::poly_domain_mult_ω(&psw_of_x, &ω);
+
+        //t(X) = ParSumW(ω · X) − ParSumW(X) − W(ω · X) · b(ω · X)
+        let t_of_x = &psw_of_ωx - &psw_of_x - (&w_of_ωx * &b_of_ωx);
+        let z_of_x = utils::compute_vanishing_poly(n as usize); //returns Z(X) = X^n - 1
+        let q2_of_x = &t_of_x / &z_of_x;
+
+        let t_of_x = &b_of_x * &b_of_x - &b_of_x;
+        let q1_of_x = &t_of_x / &z_of_x;
+
+        sanity_test_poly_domain_mult(&w_of_x, &w_of_ωx, &ω);
+        sanity_test_poly_domain_mult(&b_of_x, &b_of_ωx, &ω);
+        sanity_test_poly_domain_mult(&psw_of_x, &psw_of_ωx, &ω);
+
+        sanity_test_psw(&w_of_x, &b_of_x, &psw_of_x, &q2_of_x);
+        sanity_test_b(&b_of_x, &q1_of_x);
+    }
+
+    fn sanity_test_pssk(
+        sk_of_x: &DensePolynomial<F>,
+        b_of_x: &DensePolynomial<F>,
+        q1_of_x: &DensePolynomial<F>,
+        q2_of_x: &DensePolynomial<F>,
+        agg_sk: &F,
+    ) {
+        let mut rng = test_rng();
+        let r = F::rand(&mut rng);
+        let n: u64 = (sk_of_x.degree() + 1) as u64;
+
+        //SK(x) · B(x) − aSK = Q1(x) · Z(x) + Q2(x) · x
+        let sk_of_r = sk_of_x.evaluate(&r);
+        let b_of_r = b_of_x.evaluate(&r);
+        let q1_of_r = q1_of_x.evaluate(&r);
+        let z_of_r: F = r.pow([n]) - F::from(1);
+        let q2_of_r = q2_of_x.evaluate(&r);
+
+        let left = sk_of_r * b_of_r;
+        let right = (q1_of_r * z_of_r) + (q2_of_r * r) + agg_sk;
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn sanity_test_secret_part() {
+        //let weights: Vec<u64> = vec![2, 3, 4, 5, 4, 3, 2];
+        let bitmap: Vec<F> = vec![
+            F::from(1),
+            F::from(1),
+            F::from(0),
+            F::from(1),
+            F::from(0),
+            F::from(1),
+            F::from(1),
+            F::from(1),
+        ];
+
+        let n = bitmap.len();
+
+        let mut secret_keys: Vec<F> = sample_secret_keys(n - 1);
+        secret_keys.push(F::from(0));
+
+        let agg_sk = aggregate_sk(&secret_keys, &bitmap);
+        println!("agg_sk = {:?}", agg_sk);
+        let sk_of_x = compute_poly(&secret_keys);
+        let b_of_x = compute_poly(&bitmap);
+        let q1_of_x = compute_pssk_q1_poly(&secret_keys, &bitmap);
+        let q2_of_x = compute_pssk_q2_poly(&secret_keys, &bitmap);
+
+        sanity_test_pssk(&sk_of_x, &b_of_x, &q1_of_x, &q2_of_x, &agg_sk);
+    }
+
+    fn compute_pssk_q1_poly(sk: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
+        let n = sk.len();
+        let z_of_x = utils::compute_vanishing_poly(n);
+        //Li(x) · Li(x) − Li(x) / Z(x)
+        let mut q1 = utils::compute_constant_poly(&F::from(0));
+
+        for i in 0..n {
+            if bitmap[i] == F::from(0) {
+                continue;
+            }
+
+            let l_i_of_x = utils::lagrange_poly(n, i);
+            let num = &l_i_of_x * &l_i_of_x - &l_i_of_x;
+            let f_i = num / &z_of_x;
+            let sk_i_f_i = utils::poly_eval_mult_c(&f_i, &sk[i]);
+
+            q1 += &sk_i_f_i;
+
+            let mut q1_inner = utils::compute_constant_poly(&F::from(0));
+            for j in 0..n {
+                if i == j {
+                    continue;
+                } //i != j
+
+                let l_j_of_x = utils::lagrange_poly(n, j);
+                let num = l_j_of_x * &l_i_of_x;
+                let f_j = num / &z_of_x;
+                let sk_j_f_j = utils::poly_eval_mult_c(&f_j, &sk[j]);
+
+                q1_inner = q1_inner + sk_j_f_j;
+            }
+
+            q1 = q1 + q1_inner;
+        }
+        q1
+    }
+
+    fn compute_pssk_q2_poly(sk: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
+        let n = sk.len();
+        let x_monomial = utils::compute_x_monomial();
+
+        let mut q2 = utils::compute_constant_poly(&F::from(0));
+
+        for i in 0..n {
+            if bitmap[i] == F::from(0) {
+                continue;
+            }
+
+            let l_i_of_x = utils::lagrange_poly(n, i);
+            let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
+            let l_i_of_0 = utils::compute_constant_poly(&l_i_of_0);
+            let num = l_i_of_x.sub(&l_i_of_0);
+            let den = x_monomial.clone();
+            let f_i = num.div(&den);
+            let sk_i_f_i = utils::poly_eval_mult_c(&f_i, &sk[i]);
+
+            q2 = q2.add(sk_i_f_i);
+        }
+        q2
+    }
 }
