@@ -25,12 +25,15 @@ fn sample_weights(n: usize) -> Vec<F> {
 
 /// n is the size of the bitmap, and probability is for true or 1.
 fn sample_bitmap(n: usize, probability: f64) -> Vec<F> {
-    let rng = &mut test_rng();
+    let mut rng = &mut test_rng();
     let mut bitmap = vec![];
     for _i in 0..n {
-        //let r = u64::rand(&mut rng);
-        let bit = rng.random_bool(probability);
-        bitmap.push(F::from(bit));
+        let r = f64::rand(&mut rng);
+        if r < probability {
+            bitmap.push(F::one());
+        } else {
+            bitmap.push(F::zero());
+        }
     }
     bitmap
 }
