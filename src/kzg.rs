@@ -1,4 +1,5 @@
-//adapted from https://github.com/arkworks-rs/poly-commit/blob/master/src/kzg10/mod.rs
+//! KZG10 Commitment Scheme (implementation detail)
+
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
@@ -6,21 +7,30 @@
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ec::{
     scalar_mul::{BatchMulPreprocessing, ScalarMul},
-    VariableBaseMSM,
+    AffineRepr, VariableBaseMSM,
 };
 use ark_ff::{One, PrimeField, UniformRand, Zero};
 use ark_poly::DenseUVPolynomial;
 use ark_std::{format, marker::PhantomData, ops::*, vec};
 
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, SerializationError};
+
 use ark_std::rand::RngCore;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+use crate::HintsError;
+
+/// KZG10 Commitment Scheme
 pub struct KZG10<E: Pairing, P: DenseUVPolynomial<E::ScalarField>> {
     _engine: PhantomData<E>,
     _poly: PhantomData<P>,
 }
 
+/// Universal Parameters for KZG10
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, CanonicalSerialize, CanonicalDeserialize,
+)]
 pub struct UniversalParams<E: Pairing> {
     /// Group elements of the form `{ \beta^i G }`, where `i` ranges from 0 to `degree`.
     pub powers_of_g: Vec<E::G1Affine>,
@@ -28,6 +38,7 @@ pub struct UniversalParams<E: Pairing> {
     pub powers_of_h: Vec<E::G2Affine>,
 }
 
+/// Errors from KZG10 commitments
 #[derive(Debug)]
 pub enum Error {
     /// The degree provided in setup was too small; degree 0 polynomials
@@ -51,7 +62,13 @@ where
     for<'a, 'b> &'a P: Div<&'b P, Output = P>,
     for<'a, 'b> &'a P: Sub<&'b P, Output = P>,
 {
-    pub fn setup<R: RngCore>(max_degree: usize, rng: &mut R) -> Result<UniversalParams<E>, Error> {
+    /// Setup: Generate the Common Reference String (CRS) for a maximum degree.
+    ///
+    /// Uses an insecure method that does not require a trusted setup.
+    pub fn setup_insecure<R: RngCore>(
+        max_degree: usize,
+        rng: &mut R,
+    ) -> Result<UniversalParams<E>, Error> {
         if max_degree < 1 {
             return Err(Error::DegreeIsZero);
         }
@@ -84,7 +101,21 @@ where
         Ok(pp)
     }
 
+    /// Load the Universal Parameters from the Ethereum KZG trusted setup.
+    pub fn eth_setup(max_degree: usize) -> Result<UniversalParams<E>, HintsError> {
+        let setup = crate::trusted_setup::JsonTrustedSetup::default();
+        let ts = setup.deserialize::<E>()?;
+        Ok(UniversalParams {
+            powers_of_g: ts.g1_points[..=max_degree].to_vec(),
+            powers_of_h: ts.g2_points[..=max_degree].to_vec(),
+        })
+    }
+
+    /// Commit to a polynomial using the G1 group.
     pub fn commit_g1(params: &UniversalParams<E>, polynomial: &P) -> Result<E::G1Affine, Error> {
+        if polynomial.is_zero() {
+            return Ok(E::G1Affine::zero());
+        }
         let d = polynomial.degree();
         check_degree_is_too_large(d, params.powers_of_g.len())?;
 
@@ -96,7 +127,11 @@ where
         Ok(commitment.into_affine())
     }
 
+    /// Commit to a polynomial using the G2 group.
     pub fn commit_g2(params: &UniversalParams<E>, polynomial: &P) -> Result<E::G2Affine, Error> {
+        if polynomial.is_zero() {
+            return Ok(E::G2Affine::zero());
+        }
         let d = polynomial.degree();
         check_degree_is_too_large(d, params.powers_of_h.len())?;
 
@@ -109,6 +144,7 @@ where
         Ok(commitment.into_affine())
     }
 
+    /// Compute an opening proof for a polynomial at a given point.
     pub fn compute_opening_proof(
         params: &UniversalParams<E>,
         polynomial: &P,

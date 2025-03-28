@@ -1,28 +1,9 @@
-use std::time::Instant;
-
-use ark_ark_blst::Bls12::ark_blst::Bls12;
-use ark_ec::VariableBaseMSM;
-use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ff::{Field /* FftField */};
-use ark_poly::{
-    univariate::DensePolynomial, EvaluationDomain, Evaluations, Polynomial, Radix2EvaluationDomain,
-};
-use ark_std::rand::Rng;
+use ark_poly::{univariate::DensePolynomial, EvaluationDomain, Polynomial, Radix2EvaluationDomain};
 use ark_std::{ops::*, test_rng, UniformRand};
 
+use super::snark::*;
 use super::*;
-use super::proof_system::*;
-
-fn aggregate_sk(sk: &Vec<F>, bitmap: &Vec<F>) -> F {
-    let n = sk.len();
-    let mut agg_sk = F::from(0);
-    for i in 0..sk.len() {
-        let l_i_of_x = utils::lagrange_poly(n, i);
-        let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
-        agg_sk += bitmap[i] * sk[i] * l_i_of_0;
-    }
-    agg_sk
-}
 
 fn sanity_test_poly_domain_mult(
     f_of_x: &DensePolynomial<F>, f_of_ωx: &DensePolynomial<F>, ω: &F
@@ -105,8 +86,8 @@ fn sanity_test_public_part() {
         F::from(4),
         F::from(3),
         F::from(2),
-        F::from(0) - F::from(15),
     ];
+    let weight_aug = F::from(0) - F::from(15);
     let bitmap: Vec<F> = vec![
         F::from(1),
         F::from(1),
@@ -115,20 +96,19 @@ fn sanity_test_public_part() {
         F::from(0),
         F::from(1),
         F::from(1),
-        F::from(1),
     ];
-
-    let n: u64 = bitmap.len() as u64;
-    let domain = Radix2EvaluationDomain::<F>::new(n as usize).unwrap();
+    let bitmap_aug = F::from(1);
+    let n = bitmap.len() + 1;
+    let domain = Radix2EvaluationDomain::<F>::new(n).unwrap();
     let ω: F = domain.group_gen;
 
-    let w_of_x = compute_poly(&weights);
+    let w_of_x = utils::compute_poly(&weights, &weight_aug, n).unwrap();
     let w_of_ωx = utils::poly_domain_mult_ω(&w_of_x, &ω);
 
-    let b_of_x = compute_poly(&bitmap);
+    let b_of_x = utils::compute_poly(&bitmap, &bitmap_aug, n).unwrap();
     let b_of_ωx = utils::poly_domain_mult_ω(&b_of_x, &ω);
 
-    let psw_of_x = compute_psw_poly(&weights, &bitmap);
+    let psw_of_x = utils::compute_psw_poly(&weights, &bitmap, &weight_aug, &bitmap_aug, n).unwrap();
     let psw_of_ωx = utils::poly_domain_mult_ω(&psw_of_x, &ω);
 
     //t(X) = ParSumW(ω · X) − ParSumW(X) − W(ω · X) · b(ω · X)
@@ -159,7 +139,9 @@ fn sanity_test_pssk(
 ) {
     let mut rng = test_rng();
     let r = F::rand(&mut rng);
+    println!("r = {:?}", r);
     let n: u64 = (sk_of_x.degree() + 1) as u64;
+    println!("sk_of_x({}) = {:?}", sk_of_x.degree(), sk_of_x);
 
     //SK(x) · B(x) − aSK = Q1(x) · Z(x) + Q2(x) · x
     let sk_of_r = sk_of_x.evaluate(&r);
@@ -168,6 +150,13 @@ fn sanity_test_pssk(
     let z_of_r: F = r.pow([n]) - F::from(1);
     let q2_of_r = q2_of_x.evaluate(&r);
 
+    println!("sk_of_r = {:?}", sk_of_r);
+    println!("b_of_r = {:?}", b_of_r);
+    println!("q1_of_r = {:?}", q1_of_r);
+    println!("q2_of_r = {:?}", q2_of_r);
+    println!("z_of_r = {:?}", z_of_r);
+    println!("agg_sk = {:?}", agg_sk);
+
     let left = sk_of_r * b_of_r;
     let right = (q1_of_r * z_of_r) + (q2_of_r * r) + agg_sk;
     assert_eq!(left, right);
@@ -175,32 +164,131 @@ fn sanity_test_pssk(
 
 #[test]
 fn sanity_test_secret_part() {
-    //let weights: Vec<u64> = vec![2, 3, 4, 5, 4, 3, 2];
-    let bitmap: Vec<F> = vec![
+    let n_participants = 7;
+    let n = 8; // Domain size
+
+    let mut rng = test_rng();
+    let secret_keys_participants: Vec<F> = (0..n_participants).map(|_| F::rand(&mut rng)).collect();
+    let sk_aug = F::zero(); // SK for augmented party
+
+    let bitmap_participants: Vec<F> = vec![
         F::from(1),
         F::from(1),
         F::from(0),
         F::from(1),
         F::from(0),
-        F::from(1),
         F::from(1),
         F::from(1),
     ];
+    let bitmap_aug = F::from(1);
 
-    let n = bitmap.len();
+    // Create full vectors of length n
+    let mut secret_keys_full = secret_keys_participants.clone();
+    secret_keys_full.push(sk_aug);
 
-    let mut secret_keys: Vec<F> = sample_secret_keys(n - 1);
-    secret_keys.push(F::from(0));
+    let mut bitmap_full = bitmap_participants.clone();
+    bitmap_full.push(bitmap_aug);
 
-    let agg_sk = aggregate_sk(&secret_keys, &bitmap);
+    // Compute polynomials using domain size n
+    let sk_of_x = utils::compute_poly(&secret_keys_participants, &sk_aug, n).unwrap();
+    let b_of_x = utils::compute_poly(&bitmap_participants, &bitmap_aug, n).unwrap();
+
+    // Compute agg_sk, q1, q2 based on the full n-element context
+    let agg_sk = aggregate_sk(&secret_keys_full, &bitmap_full); // Use full vectors
+
+    // Q1 and Q2 computations need to use the full n-size context
+    let q1_of_x = compute_pssk_q1_poly(&secret_keys_full, &bitmap_full);
+    let q2_of_x = compute_pssk_q2_poly(&secret_keys_full, &bitmap_full);
+
+    println!("sk_of_x({}) = {:?}", sk_of_x.degree(), sk_of_x);
+    println!("b_of_x({}) = {:?}", b_of_x.degree(), b_of_x);
+    println!("q1_of_x({}) = {:?}", q1_of_x.degree(), q1_of_x);
+    println!("q2_of_x({}) = {:?}", q2_of_x.degree(), q2_of_x);
+
     println!("agg_sk = {:?}", agg_sk);
-    let sk_of_x = compute_poly(&secret_keys);
-    let b_of_x = compute_poly(&bitmap);
-    let q1_of_x = compute_pssk_q1_poly(&secret_keys, &bitmap);
-    let q2_of_x = compute_pssk_q2_poly(&secret_keys, &bitmap);
+    println!("q1_of_x({}) = {:?}", q1_of_x.degree(), q1_of_x);
+    println!("q2_of_x({}) = {:?}", q2_of_x.degree(), q2_of_x);
 
     sanity_test_pssk(&sk_of_x, &b_of_x, &q1_of_x, &q2_of_x, &agg_sk);
 }
+
+fn aggregate_sk(sk_full: &Vec<F>, bitmap_full: &Vec<F>) -> F {
+    let n = sk_full.len();
+    assert_eq!(bitmap_full.len(), n, "aggregate_sk length mismatch");
+    let mut agg_sk = F::from(0);
+    for i in 0..n {
+        // Iterate up to n
+        let l_i_of_x = utils::lagrange_poly(n, i); // Use domain size n
+        let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
+        agg_sk += bitmap_full[i] * sk_full[i] * l_i_of_0;
+    }
+    agg_sk
+}
+/*
+// Modify pssk quotient functions to take full sk, bitmap, and n
+fn compute_pssk_q1_poly(sk_full: &Vec<F>, bitmap_full: &Vec<F>, n: usize) -> DensePolynomial<F> {
+    assert_eq!(sk_full.len(), n, "pssk_q1 sk length");
+    assert_eq!(bitmap_full.len(), n, "pssk_q1 bitmap length");
+    let z_of_x = utils::compute_vanishing_poly(n); // Use domain size n
+    let mut q1 = utils::compute_constant_poly(&F::from(0));
+
+    for i in 0..n {
+        // Iterate up to n
+        if bitmap_full[i].is_zero() {
+            continue;
+        }
+
+        let l_i_of_x = utils::lagrange_poly(n, i); // Use domain size n
+        let num_self = &l_i_of_x * &l_i_of_x - &l_i_of_x;
+        let f_i_self = &num_self / &z_of_x;
+        let sk_i_f_i_self = utils::poly_eval_mult_c(&f_i_self, &sk_full[i]);
+        q1 = q1 + sk_i_f_i_self;
+
+        let mut q1_inner = utils::compute_constant_poly(&F::from(0));
+        for j in 0..n {
+            // Iterate up to n
+            if i == j {
+                continue;
+            }
+
+            if bitmap_full[j].is_zero() {
+                continue;
+            } // Only consider active j
+
+            let l_j_of_x = utils::lagrange_poly(n, j); // Use domain size n
+            let num_cross = &l_j_of_x * &l_i_of_x;
+            let f_j_cross = &num_cross / &z_of_x;
+            let sk_j_f_j_cross = utils::poly_eval_mult_c(&f_j_cross, &sk_full[i]);
+            q1_inner = q1_inner + sk_j_f_j_cross;
+        }
+        q1 = q1 + q1_inner;
+    }
+    q1
+}
+
+fn compute_pssk_q2_poly(sk_full: &Vec<F>, bitmap_full: &Vec<F>, n: usize) -> DensePolynomial<F> {
+    assert_eq!(sk_full.len(), n, "pssk_q2 sk length");
+    assert_eq!(bitmap_full.len(), n, "pssk_q2 bitmap length");
+    let x_monomial = utils::compute_x_monomial();
+    let mut q2 = utils::compute_constant_poly(&F::from(0));
+
+    for i in 0..n {
+        // Iterate up to n
+        if bitmap_full[i] == F::from(0) {
+            continue;
+        }
+
+        let l_i_of_x = utils::lagrange_poly(n, i); // Use domain size n
+        let l_i_of_0 = l_i_of_x.evaluate(&F::from(0));
+        let l_i_of_0_poly = utils::compute_constant_poly(&l_i_of_0);
+        let num = &l_i_of_x - &l_i_of_0_poly;
+        let den = x_monomial.clone(); // Can't divide by ref
+        let f_i = num / den; // Use owned value for division
+        let sk_i_f_i = utils::poly_eval_mult_c(&f_i, &sk_full[i]);
+        q2 = q2 + sk_i_f_i;
+    }
+    q2
+}*/
 
 fn compute_pssk_q1_poly(sk: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
     let n = sk.len();
