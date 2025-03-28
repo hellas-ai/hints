@@ -1,20 +1,13 @@
 use hints::snark::{
-    finish_setup, hintgen, prove, verify_proof, AggregationKey, Cache, G1Projective, G2Projective, GlobalData, Hint, SetupResult, VerifierKey, F, G1, KZG
+    finish_setup, hintgen, AggregationKey, GlobalData, Hint, SetupResult, VerifierKey, F, KZG,
 };
-use hints::{
-    keygen, partial_verify, sign_aggregate, verify_aggregate, HintsError, PartialSignature,
-    PublicKey, SecretKey, Signature,
-};
+use hints::{HintsError, PartialSignature, PublicKey, SecretKey};
 
-use ark_ec::{pairing::Pairing, CurveGroup};
-use ark_ff::{Field, One, PrimeField, UniformRand, Zero};
-use ark_poly::Polynomial;
+use ark_ff::{One, UniformRand, Zero};
 use ark_std::rand::{rngs::StdRng, Rng, SeedableRng};
-use ark_std::{ops::*, test_rng, vec, vec::Vec}; // Ensure vec is imported
+use ark_std::{vec, vec::Vec}; // Ensure vec is imported
 
-// Proptest dependencies
 use proptest::prelude::*;
-use proptest::sample::Index; // For sampling indices
 
 // === Test Constants ===
 const TEST_SEED: [u8; 32] = [42u8; 32];
@@ -34,20 +27,16 @@ fn sample_weights(n: usize, rng: &mut impl Rng) -> Vec<F> {
     (0..n).map(|_| F::from(u16::rand(rng))).collect()
 }
 
+type SetupProptestEnvResult = (
+    GlobalData,
+    Vec<SecretKey>,
+    Vec<PublicKey>,
+    Vec<Hint>,
+    Vec<F>,
+);
 /// Sets up the global data, keys, hints, and weights for testing.
 /// Uses fixed sizes defined by PROPTEST_ constants.
-fn setup_proptest_env(
-    rng: &mut impl Rng,
-) -> Result<
-    (
-        GlobalData,
-        Vec<SecretKey>,
-        Vec<PublicKey>,
-        Vec<Hint>,
-        Vec<F>,
-    ),
-    HintsError,
-> {
+fn setup_proptest_env(rng: &mut impl Rng) -> Result<SetupProptestEnvResult, HintsError> {
     let domain_max = PROPTEST_DOMAIN_MAX;
     let n_participants = PROPTEST_N_PARTICIPANTS;
 
@@ -84,7 +73,11 @@ fn run_proptest_finish_setup(
     weights: Vec<F>,
 ) -> Result<(AggregationKey, VerifierKey), HintsError> {
     let domain_max = PROPTEST_DOMAIN_MAX;
-    let SetupResult { agg_key, vk, party_errors } = finish_setup(gd, domain_max, pks, hints, weights)?;
+    let SetupResult {
+        agg_key,
+        vk,
+        party_errors,
+    } = finish_setup(gd, domain_max, pks, hints, weights)?;
     assert!(
         party_errors.is_empty(),
         "Hint verification failed unexpectedly: {:?}",
@@ -101,7 +94,11 @@ fn run_finish_setup(
     hints: &[Hint],
     weights: Vec<F>,
 ) -> Result<(AggregationKey, VerifierKey), HintsError> {
-    let SetupResult { agg_key, vk, party_errors } = finish_setup(gd, domain_max, pks, hints, weights)?;
+    let SetupResult {
+        agg_key,
+        vk,
+        party_errors,
+    } = finish_setup(gd, domain_max, pks, hints, weights)?;
     assert!(
         party_errors.is_empty(),
         "Hint verification failed unexpectedly: {:?}",
@@ -133,7 +130,8 @@ fn test_full_workflow_success() {
 
     // Setup
     let (gd, sks, pks, hints, weights) =
-        setup_test_env_dynamic_size(domain_max, &mut rng).expect("Test setup failed");
+        setup_test_env_dynamic_size(domain_max, n_participants, &mut rng)
+            .expect("Test setup failed");
     let (ak, vk) = run_finish_setup(&gd, domain_max, pks, &hints, weights.clone())
         .expect("Finish setup failed");
 
@@ -162,7 +160,8 @@ fn test_subset_signs_success() {
 
     // Setup
     let (gd, sks, pks, hints, weights) =
-        setup_test_env_dynamic_size(domain_max, &mut rng).expect("Test setup failed");
+        setup_test_env_dynamic_size(domain_max, n_participants, &mut rng)
+            .expect("Test setup failed");
     let (ak, vk) = run_finish_setup(&gd, domain_max, pks, &hints, weights.clone())
         .expect("Finish setup failed");
 
@@ -194,7 +193,8 @@ fn test_threshold_not_met_aggregation_fails() {
 
     // Setup
     let (gd, sks, pks, hints, weights) =
-        setup_test_env_dynamic_size(domain_max, &mut rng).expect("Test setup failed");
+        setup_test_env_dynamic_size(domain_max, n_participants, &mut rng)
+            .expect("Test setup failed");
     let (ak, _) = run_finish_setup(&gd, domain_max, pks, &hints, weights.clone())
         .expect("Finish setup failed");
 
@@ -220,11 +220,13 @@ fn test_threshold_not_met_aggregation_fails() {
 fn test_invalid_partial_signature_ignored() {
     let mut rng = seeded_rng();
     let domain_max = 4; // n=3 participants
+    let n_participants = domain_max - 1;
     let msg = b"invalid partial sig";
 
     // Setup
     let (gd, sks, pks, hints, weights) =
-        setup_test_env_dynamic_size(domain_max, &mut rng).expect("Test setup failed");
+        setup_test_env_dynamic_size(domain_max, n_participants, &mut rng)
+            .expect("Test setup failed");
     let (ak, vk) = run_finish_setup(&gd, domain_max, pks.clone(), &hints, weights.clone())
         .expect("Finish setup failed");
 
@@ -265,12 +267,14 @@ fn test_invalid_partial_signature_ignored() {
 fn test_wrong_message_verification_fails() {
     let mut rng = seeded_rng();
     let domain_max = 4; // n=3 participants
+    let n_participants = domain_max - 1;
     let msg1 = b"message one";
     let msg2 = b"message two";
 
     // Setup
     let (gd, sks, pks, hints, weights) =
-        setup_test_env_dynamic_size(domain_max, &mut rng).expect("Test setup failed");
+        setup_test_env_dynamic_size(domain_max, n_participants, &mut rng)
+            .expect("Test setup failed");
     let (ak, vk) = run_finish_setup(&gd, domain_max, pks, &hints, weights.clone())
         .expect("Finish setup failed");
 
@@ -302,7 +306,8 @@ fn test_invalid_hint_finish_setup() {
 
     // Setup
     let (gd, sks, pks, mut hints, weights) =
-        setup_test_env_dynamic_size(domain_max, &mut rng).expect("Test setup failed");
+        setup_test_env_dynamic_size(domain_max, n_participants, &mut rng)
+            .expect("Test setup failed");
 
     // Create an invalid hint for participant 1
     let invalid_hint = hintgen(&gd, &SecretKey::random(&mut rng), domain_max, 1) // Wrong SK
@@ -310,7 +315,11 @@ fn test_invalid_hint_finish_setup() {
     hints[1] = invalid_hint;
 
     // Run finish_setup - expect success but with a reported error
-    let SetupResult { agg_key, vk, party_errors } = finish_setup(&gd, domain_max, pks.clone(), &hints, weights.clone())
+    let SetupResult {
+        agg_key,
+        vk,
+        party_errors,
+    } = finish_setup(&gd, domain_max, pks.clone(), &hints, weights.clone())
         .expect("Finish setup itself should not fail here");
 
     // Check that the error for participant 1 was reported
@@ -373,24 +382,23 @@ fn test_setup_errors_participant_count_mismatch() {
         result
     );
 }
+
+type SetupTestEnvResult = (
+    GlobalData,
+    Vec<SecretKey>,
+    Vec<PublicKey>,
+    Vec<Hint>,
+    Vec<F>,
+);
 // Helper needed for standard tests when dynamic size is needed
 fn setup_test_env_dynamic_size(
     domain_max: usize,
+    n_participants: usize,
     rng: &mut impl Rng,
-) -> Result<
-    (
-        GlobalData,
-        Vec<SecretKey>,
-        Vec<PublicKey>,
-        Vec<Hint>,
-        Vec<F>,
-    ),
-    HintsError,
-> {
+) -> Result<SetupTestEnvResult, HintsError> {
     if domain_max == 0 || !domain_max.is_power_of_two() {
         panic!("domain_max must be a power of 2 and > 0");
     }
-    let n_participants = domain_max - 1;
     let gd = GlobalData::from_params(domain_max, KZG::setup_insecure(domain_max, rng)?);
     let sks: Vec<SecretKey> = (0..n_participants)
         .map(|_| SecretKey::random(rng))

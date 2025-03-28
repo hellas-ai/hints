@@ -3,7 +3,6 @@ use core::hint::black_box;
 use hints::snark::*;
 use hints::*;
 
-use ark_std::rand::Rng;
 use ark_std::*;
 
 #[cfg(feature = "parallel")]
