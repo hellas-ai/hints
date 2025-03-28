@@ -118,7 +118,7 @@ fn sanity_test_public_part() {
         .clone()
         .sub(&psw_of_x)
         .sub(&w_of_ωx.clone().mul(&b_of_ωx));
-    let z_of_x = utils::compute_vanishing_poly(n as usize); //returns Z(X) = X^n - 1
+    let z_of_x = utils::compute_vanishing_poly(n); //returns Z(X) = X^n - 1
     let q2_of_x = t_of_x.div(&z_of_x);
 
     let t_of_x = b_of_x.clone().mul(&b_of_x).sub(&b_of_x);
@@ -229,7 +229,7 @@ fn compute_pssk_q1_poly(sk: &[F], bitmap: &[F]) -> DensePolynomial<F> {
         q1 = q1.add(sk_i_f_i);
 
         let mut q1_inner = utils::compute_constant_poly(&F::from(0));
-        for j in 0..n {
+        for (j, sk) in sk.iter().enumerate().take(n) {
             if i == j {
                 continue;
             } //i != j
@@ -237,7 +237,7 @@ fn compute_pssk_q1_poly(sk: &[F], bitmap: &[F]) -> DensePolynomial<F> {
             let l_j_of_x = utils::lagrange_poly(n, j);
             let num = l_j_of_x.mul(&l_i_of_x);
             let f_j = num.div(&z_of_x);
-            let sk_j_f_j = utils::poly_eval_mult_c(&f_j, &sk[j]);
+            let sk_j_f_j = utils::poly_eval_mult_c(&f_j, sk);
 
             q1_inner = q1_inner.add(sk_j_f_j);
         }
