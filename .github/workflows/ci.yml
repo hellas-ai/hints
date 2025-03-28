@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  env:
+    SCCACHE_GHA_ENABLED: "true"
+    RUSTC_WRAPPER: "sccache"
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Install Rust toolchain
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      #
+      - name: Install cargo-nextest
+	      uses: taiki-e/install-action@cargo-nextest
+
+      - name: Run sccache-cache
+              uses: mozilla-actions/sccache-action@v0.0.7
+      # Run Clippy (linting)
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Check code formatting
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      # Run tests with cargo-nextest
+      - name: Run Tests
+        run: cargo nextest run
