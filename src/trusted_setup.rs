@@ -4,7 +4,7 @@ use ark_serialize::{CanonicalSerialize, Compress, SerializationError, Validate};
 use hex::FromHexError;
 use serde::Deserialize;
 
-const TRUSTED_SETUP_JSON: &str = include_str!("../data/trusted_setup_4096.json");
+const TRUSTED_SETUP_JSON: &str = include_str!("data/trusted_setup_4096.json");
 
 /// JSON representation of the Ethereum trusted setup.
 #[derive(Deserialize, Debug, PartialEq, Eq)]
