@@ -98,9 +98,8 @@ pub fn main() {
     end_timer!(proving);
 
     let verification = start_timer!(|| "SNARK proof verification");
-    assert_eq!(
+    assert!(
         verify_proof(&vk, &proof).expect("Failed to verify proof"),
-        true,
         "Proof is invalid"
     );
     end_timer!(verification);
@@ -109,7 +108,7 @@ pub fn main() {
     let partials: Vec<(usize, PartialSignature)> = sk
         .iter()
         .enumerate()
-        .map(|(i, sk)| (i, sign(&sk, b"hello")))
+        .map(|(i, sk)| (i, sign(sk, b"hello")))
         .collect();
     end_timer!(signing);
 
@@ -118,9 +117,8 @@ pub fn main() {
     end_timer!(aggregation);
 
     let verification = start_timer!(|| "Signature verification");
-    assert_eq!(
+    assert!(
         verify_aggregate(&vk, &sig, b"hello").unwrap(),
-        true,
         "Signature is invalid"
     );
     end_timer!(verification);

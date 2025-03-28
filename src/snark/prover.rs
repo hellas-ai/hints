@@ -88,7 +88,7 @@ pub fn prove(
 
     //compute all the scalars we will need in the prover
     let domain =
-        Radix2EvaluationDomain::<F>::new(n as usize).ok_or(HintsError::PolynomialDegreeTooLarge)?;
+        Radix2EvaluationDomain::<F>::new(n).ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
     let r_div_ω: F = r / ω;
     let ω_inv: F = F::from(1) / ω;
@@ -154,7 +154,7 @@ pub fn prove(
     .into(); // Convert G1Projective to G1Affine if needed, depends on Mul impl
 
     Ok(Proof {
-        agg_pk: agg_pk,
+        agg_pk,
         agg_weight: total_active_weight,
         r,
         psw_of_r_div_ω: psw_of_x.evaluate(&r_div_ω),
@@ -166,14 +166,14 @@ pub fn prove(
         psw_check_q_of_r: psw_check_q_of_x.evaluate(&r),
         b_wff_q_of_r: b_wff_q_of_x.evaluate(&r),
         b_check_q_of_r: b_check_q_of_x.evaluate(&r),
-        merged_proof: merged_proof.into(), // Ensure it's Affine
+        merged_proof, // Ensure it's Affine
         psw_of_x_com: KZG::commit_g1(params, &psw_of_x)?,
         b_of_x_com: KZG::commit_g1(params, &b_of_x)?,
         psw_wff_q_of_x_com: KZG::commit_g1(params, &psw_wff_q_of_x)?,
         psw_check_q_of_x_com: KZG::commit_g1(params, &psw_check_q_of_x)?,
         b_wff_q_of_x_com: KZG::commit_g1(params, &b_wff_q_of_x)?,
         b_check_q_of_x_com: KZG::commit_g1(params, &b_check_q_of_x)?,
-        sk_q1_com: sk_q1_com,
-        sk_q2_com: sk_q2_com,
+        sk_q1_com,
+        sk_q2_com,
     })
 }

@@ -43,17 +43,12 @@ pub fn lagrange_poly(domain_max: usize, i: usize) -> DensePolynomial<F> {
 
 // returns t(X) = X
 pub fn compute_x_monomial() -> DensePolynomial<F> {
-    let mut coeffs = vec![];
-    coeffs.push(F::from(0)); // 0
-    coeffs.push(F::from(1)); // X
-    DensePolynomial { coeffs }
+    DensePolynomial { coeffs: vec![F::from(0), F::from(1)] }
 }
 
 // returns t(X) = c
 pub fn compute_constant_poly(c: &F) -> DensePolynomial<F> {
-    let mut coeffs = vec![];
-    coeffs.push(c.clone()); // c
-    DensePolynomial { coeffs }
+    DensePolynomial { coeffs: vec![*c] }
 }
 
 //computes f(ωx)
@@ -62,7 +57,7 @@ pub fn poly_domain_mult_ω(f: &DensePolynomial<F>, ω: &F) -> DensePolynomial<F>
     for i in 1..(f.degree() + 1) {
         //we don't touch the zeroth coefficient
         let ω_pow_i: F = ω.pow([i as u64]);
-        new_poly.coeffs[i] = new_poly.coeffs[i] * ω_pow_i;
+        new_poly.coeffs[i] *= ω_pow_i;
     }
     new_poly
 }
@@ -71,7 +66,7 @@ pub fn poly_domain_mult_ω(f: &DensePolynomial<F>, ω: &F) -> DensePolynomial<F>
 pub fn poly_eval_mult_c(f: &DensePolynomial<F>, c: &F) -> DensePolynomial<F> {
     let mut new_poly = f.clone();
     for i in 0..(f.degree() + 1) {
-        new_poly.coeffs[i] = new_poly.coeffs[i] * c.clone();
+        new_poly.coeffs[i] *= *c;
     }
     new_poly
 }

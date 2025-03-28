@@ -37,11 +37,11 @@ fn verify_opening(
     evaluation: &F,
     opening_proof: &G1,
 ) -> bool {
-    let eval_com: G1 = vp.g_0.clone().mul(evaluation).into();
-    let point_com: G2 = vp.h_0.clone().mul(point).into();
+    let eval_com: G1 = vp.g_0.mul(evaluation).into();
+    let point_com: G2 = vp.h_0.mul(point).into();
 
-    let lhs = <Curve as Pairing>::pairing(commitment.clone() - eval_com, vp.h_0);
-    let rhs = <Curve as Pairing>::pairing(opening_proof.clone(), vp.h_1 - point_com);
+    let lhs = <Curve as Pairing>::pairing(*commitment - eval_com, vp.h_0);
+    let rhs = <Curve as Pairing>::pairing(*opening_proof, vp.h_1 - point_com);
     lhs == rhs
 }
 
@@ -51,17 +51,17 @@ fn verify_openings(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
     let adjustment_com = vp.l_n_minus_1_of_x_com.mul(adjustment);
     let w_of_x_com: G1 = (vp.w_of_x_com + adjustment_com).into();
 
-    let psw_of_r_argument = π.psw_of_x_com - vp.g_0.clone().mul(π.psw_of_r).into_affine();
-    let w_of_r_argument = w_of_x_com - vp.g_0.clone().mul(π.w_of_r).into_affine();
-    let b_of_r_argument = π.b_of_x_com - vp.g_0.clone().mul(π.b_of_r).into_affine();
+    let psw_of_r_argument = π.psw_of_x_com - vp.g_0.mul(π.psw_of_r).into_affine();
+    let w_of_r_argument = w_of_x_com - vp.g_0.mul(π.w_of_r).into_affine();
+    let b_of_r_argument = π.b_of_x_com - vp.g_0.mul(π.b_of_r).into_affine();
     let psw_wff_q_of_r_argument =
-        π.psw_wff_q_of_x_com - vp.g_0.clone().mul(π.psw_wff_q_of_r).into_affine();
+        π.psw_wff_q_of_x_com - vp.g_0.mul(π.psw_wff_q_of_r).into_affine();
     let psw_check_q_of_r_argument =
-        π.psw_check_q_of_x_com - vp.g_0.clone().mul(π.psw_check_q_of_r).into_affine();
+        π.psw_check_q_of_x_com - vp.g_0.mul(π.psw_check_q_of_r).into_affine();
     let b_wff_q_of_r_argument =
-        π.b_wff_q_of_x_com - vp.g_0.clone().mul(π.b_wff_q_of_r).into_affine();
+        π.b_wff_q_of_x_com - vp.g_0.mul(π.b_wff_q_of_r).into_affine();
     let b_check_q_of_r_argument =
-        π.b_check_q_of_x_com - vp.g_0.clone().mul(π.b_check_q_of_r).into_affine();
+        π.b_check_q_of_x_com - vp.g_0.mul(π.b_check_q_of_r).into_affine();
 
     let merged_argument: G1 = (psw_of_r_argument
         + w_of_r_argument.mul(π.r.pow([1]))
@@ -75,12 +75,12 @@ fn verify_openings(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
     let lhs = <Curve as Pairing>::pairing(merged_argument, vp.h_0);
     let rhs = <Curve as Pairing>::pairing(
         π.merged_proof,
-        vp.h_1 - vp.h_0.clone().mul(π.r).into_affine(),
+        vp.h_1 - vp.h_0.mul(π.r).into_affine(),
     );
 
     lhs_rhs_eq!(lhs, rhs);
 
-    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max as usize)
+    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max)
         .ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
     let r_div_ω: F = π.r / ω;
@@ -95,11 +95,11 @@ fn verify_openings(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
 
 /// Verify a proof for an aggregated signature.
 pub fn verify_proof(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
-    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max as usize)
+    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max)
         .ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
 
-    if let false = verify_openings(vp, π)? {
+    if !(verify_openings(vp, π)?) {
         return Ok(false);
     }
 
@@ -113,10 +113,10 @@ pub fn verify_proof(vp: &VerifierKey, π: &Proof) -> Result<bool, HintsError> {
         (ω_pow_n_minus_1 / F::from(n)) * (vanishing_of_r / (π.r - ω_pow_n_minus_1));
 
     //assert polynomial identity for the secret part
-    let lhs = <Curve as Pairing>::pairing(&π.b_of_x_com, &vp.sk_of_x_com);
-    let x1 = <Curve as Pairing>::pairing(&π.sk_q1_com, &vp.vanishing_com);
-    let x2 = <Curve as Pairing>::pairing(&π.sk_q2_com, &vp.x_monomial_com);
-    let x3 = <Curve as Pairing>::pairing(&π.agg_pk, &vp.h_0);
+    let lhs = <Curve as Pairing>::pairing(π.b_of_x_com, vp.sk_of_x_com);
+    let x1 = <Curve as Pairing>::pairing(π.sk_q1_com, vp.vanishing_com);
+    let x2 = <Curve as Pairing>::pairing(π.sk_q2_com, vp.x_monomial_com);
+    let x3 = <Curve as Pairing>::pairing(π.agg_pk, vp.h_0);
     let rhs = x1.add(x2).add(x3);
     lhs_rhs_eq!(lhs, rhs);
 

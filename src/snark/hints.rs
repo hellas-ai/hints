@@ -76,15 +76,15 @@ pub fn hintgen(gd: &GlobalData, sk: &SecretKey, n: usize, i: usize) -> Result<Hi
     })
 }
 
-pub(crate) fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1>>) -> Vec<G1> {
+pub(crate) fn preprocess_q1_contributions(q1_contributions: &[Vec<G1>]) -> Vec<G1> {
     let n = q1_contributions.len();
     let mut q1_coms = vec![];
 
     for i in 0..n {
-        let mut party_i_q1_com = q1_contributions[i][i].clone();
-        for j in 0..n {
+        let mut party_i_q1_com = q1_contributions[i][i];
+        for (j, contr) in q1_contributions.iter().enumerate().take(n) {
             if i != j {
-                let party_j_contribution = q1_contributions[j][i].clone();
+                let party_j_contribution = contr[i];
                 party_i_q1_com = party_i_q1_com.add(party_j_contribution).into();
             }
         }
@@ -121,19 +121,19 @@ fn add_all_g2<'a>(
 ) -> G2 {
     elements
         .into_iter()
-        .fold(get_zero_poly_com_g2(&params), |acc, e| {
+        .fold(get_zero_poly_com_g2(params), |acc, e| {
             acc.add(e).into_affine()
         })
 }
 
 fn get_zero_poly_com_g1(params: &UniversalParams<Curve>) -> G1 {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
-    KZG::commit_g1(&params, &zero_poly).unwrap()
+    KZG::commit_g1(params, &zero_poly).unwrap()
 }
 
 fn get_zero_poly_com_g2(params: &UniversalParams<Curve>) -> G2 {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
-    KZG::commit_g2(&params, &zero_poly).unwrap()
+    KZG::commit_g2(params, &zero_poly).unwrap()
 }
 
 /// Errors that can occur during hint verification.
@@ -186,7 +186,7 @@ pub fn finish_setup(
         )));
     }
 
-    let hint_aug = hintgen(&gd, &SecretKey(F::zero()), domain_max, domain_max - 1)?;
+    let hint_aug = hintgen(gd, &SecretKey(F::zero()), domain_max, domain_max - 1)?;
     let pk_aug = PublicKey((gd.params.powers_of_g[0] * F::zero()).into_affine());
     let params = &gd.params;
 
@@ -235,27 +235,27 @@ pub fn finish_setup(
     vk_com_sk_tau += hint_aug.com_sk_li_tau;
 
     let w_of_x = utils::compute_poly(&weights, &F::zero(), domain_max)?;
-    let w_of_x_com = KZG::commit_g1(&params, &w_of_x).unwrap();
+    let w_of_x_com = KZG::commit_g1(params, &w_of_x).unwrap();
     let z_of_x = utils::compute_vanishing_poly(domain_max);
     let x_monomial = utils::compute_x_monomial();
     let l_n_minus_1_of_x = &gd.cache.lagrange_polynomials[domain_max - 1];
 
     let vp = VerifierKey {
         domain_max,
-        g_0: params.powers_of_g[0].clone(),
-        h_0: params.powers_of_h[0].clone(),
-        h_1: params.powers_of_h[1].clone(),
-        l_n_minus_1_of_x_com: KZG::commit_g1(&params, &l_n_minus_1_of_x).unwrap(),
-        w_of_x_com: w_of_x_com,
+        g_0: params.powers_of_g[0],
+        h_0: params.powers_of_h[0],
+        h_1: params.powers_of_h[1],
+        l_n_minus_1_of_x_com: KZG::commit_g1(params, l_n_minus_1_of_x).unwrap(),
+        w_of_x_com,
         sk_of_x_com: add_all_g2(
-            &params,
+            params,
             hints
                 .iter()
                 .chain(std::iter::once(&hint_aug))
                 .map(|h| &h.com_sk_li_tau),
         ),
-        vanishing_com: KZG::commit_g2(&params, &z_of_x).unwrap(),
-        x_monomial_com: KZG::commit_g2(&params, &x_monomial).unwrap(),
+        vanishing_com: KZG::commit_g2(params, &z_of_x).unwrap(),
+        x_monomial_com: KZG::commit_g2(params, &x_monomial).unwrap(),
     };
 
     // --- Compute AK ---
@@ -265,7 +265,7 @@ pub fn finish_setup(
             .iter()
             .chain(std::iter::once(&hint_aug))
             .map(|h| h.com_q1_contributions.clone())
-            .collect(),
+            .collect::<Vec<_>>(),
     );
     let q2_coms: Vec<G1> = hints
         .iter()

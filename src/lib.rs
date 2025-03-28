@@ -119,7 +119,7 @@ pub struct Signature {
 
 impl Signature {
     pub fn verify(&self, crs: &VerifierKey, msg: &[u8]) -> Result<bool, HintsError> {
-        verify_aggregate(crs, &self, msg)
+        verify_aggregate(crs, self, msg)
     }
 }
 

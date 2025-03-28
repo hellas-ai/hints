@@ -50,12 +50,12 @@ impl Cache {
 
         let lagrange_coms_g1 = lagrange_polynomials
             .iter()
-            .map(|h| KZG10::commit_g1(&params, h).unwrap())
+            .map(|h| KZG10::commit_g1(params, h).unwrap())
             .collect();
 
         let lagrange_coms_g2 = lagrange_polynomials
             .iter()
-            .map(|h| KZG10::commit_g2(&params, h).unwrap())
+            .map(|h| KZG10::commit_g2(params, h).unwrap())
             .collect();
 
         Cache {
@@ -84,7 +84,7 @@ pub struct Cache {
 
 fn compute_apk(
     all_pks: &[PublicKey],
-    all_l_polys: &Vec<DensePolynomial<F>>,
+    all_l_polys: &[DensePolynomial<F>],
     full_bitmap: &[F],
 ) -> G1 {
     let n = full_bitmap.len();
