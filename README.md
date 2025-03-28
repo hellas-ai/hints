@@ -37,7 +37,7 @@ Here's a simple example of how to use hinTS:
 
 ```rust
 use ark_std::{UniformRand, rand::Rng};
-use hints::{*, snark::{finish_setup, Hint, KZG, GlobalData, F}};
+use hints::{*, snark::{finish_setup, F, Hint, KZG, GlobalData, SetupResult}};
 
 fn sample_weights(n: usize, rng: &mut impl Rng) -> Vec<F> {
     (0..n).map(|_| F::from(u64::rand(rng))).collect()
@@ -61,7 +61,7 @@ let hints: Vec<Hint> = sk.iter()
 
 // Setup with weights
 let weights = sample_weights(n, &mut rng);
-let (ak, vk, hint_errors) = finish_setup(&gd, domain, pks, &hints, weights.clone())
+let SetupResult { agg_key, vk, party_errors } = finish_setup(&gd, domain, pks, &hints, weights.clone())
     .expect("Failed to finish setup");
 
 // Sign a message with each signer
@@ -71,7 +71,7 @@ let partials: Vec<(usize, PartialSignature)> = sk.iter()
     .collect();
 
 // Aggregate signatures with a threshold of 1
-let sig = ak.aggregate(&gd, F::from(1), &partials, weights, b"hello").unwrap();
+let sig = agg_key.aggregate(&gd, F::from(1), &partials, weights, b"hello").unwrap();
 
 // Verify the aggregated signature
 let result = sig.verify(&vk, b"hello").unwrap();

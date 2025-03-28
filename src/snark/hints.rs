@@ -95,8 +95,8 @@ pub(crate) fn preprocess_q1_contributions(q1_contributions: &[Vec<G1>]) -> Vec<G
 
 pub(crate) fn filter_and_add(
     params: &UniversalParams<Curve>,
-    elements: &Vec<G1>,
-    bitmap_full: &Vec<F>,
+    elements: &[G1],
+    bitmap_full: &[F],
 ) -> G1 {
     assert_eq!(
         elements.len(),

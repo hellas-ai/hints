@@ -12,7 +12,7 @@ fn sanity_test_poly_domain_mult(
 ) {
     let mut rng = test_rng();
     let r = F::rand(&mut rng);
-    let ωr: F = ω.clone() * r;
+    let ωr: F = *ω * r;
     assert_eq!(f_of_x.evaluate(&ωr), f_of_ωx.evaluate(&r));
 }
 
@@ -196,7 +196,7 @@ fn sanity_test_secret_part() {
     sanity_test_pssk(&sk_of_x, &b_of_x, &q1_of_x, &q2_of_x, &agg_sk);
 }
 
-fn aggregate_sk(sk_full: &Vec<F>, bitmap_full: &Vec<F>) -> F {
+fn aggregate_sk(sk_full: &[F], bitmap_full: &[F]) -> F {
     let n = sk_full.len();
     assert_eq!(bitmap_full.len(), n, "aggregate_sk length mismatch");
     let mut agg_sk = F::from(0);
@@ -209,7 +209,7 @@ fn aggregate_sk(sk_full: &Vec<F>, bitmap_full: &Vec<F>) -> F {
     agg_sk
 }
 
-fn compute_pssk_q1_poly(sk: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
+fn compute_pssk_q1_poly(sk: &[F], bitmap: &[F]) -> DensePolynomial<F> {
     let n = sk.len();
     let z_of_x = utils::compute_vanishing_poly(n);
     //Li(x) · Li(x) − Li(x) / Z(x)
@@ -247,7 +247,7 @@ fn compute_pssk_q1_poly(sk: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
     q1
 }
 
-fn compute_pssk_q2_poly(sk: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
+fn compute_pssk_q2_poly(sk: &[F], bitmap: &[F]) -> DensePolynomial<F> {
     let n = sk.len();
     let x_monomial = utils::compute_x_monomial();
 

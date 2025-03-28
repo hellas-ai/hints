@@ -72,7 +72,7 @@ pub fn poly_eval_mult_c(f: &DensePolynomial<F>, c: &F) -> DensePolynomial<F> {
 }
 
 pub(crate) fn compute_poly(
-    v: &Vec<F>,
+    v: &[F],
     aug: &F,
     domain_max: usize,
 ) -> Result<DensePolynomial<F>, HintsError> {
