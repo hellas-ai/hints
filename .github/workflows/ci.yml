@@ -28,7 +28,7 @@ jobs:
 
       #
       - name: Install cargo-nextest
-	      uses: taiki-e/install-action@cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
 
       - name: Run sccache-cache
               uses: mozilla-actions/sccache-action@v0.0.7
