@@ -1,6 +1,6 @@
 [package]
 name = "hints"
-version = "0.0.3"
+version = "0.0.4"
 authors = [ "hints authors", "ember arlynx <ember@hellas.ai>" ]
 description = "A library for computing weighted threshold signatures"
 keywords = ["cryptography", "finite-fields", "elliptic-curves", "pairing"]
