@@ -9,6 +9,7 @@ jobs:
   env:
     SCCACHE_GHA_ENABLED: "true"
     RUSTC_WRAPPER: "sccache"
+    RUSTFLAGS: "-Dwarnings"
   build-and-test:
     runs-on: ubuntu-latest
 
