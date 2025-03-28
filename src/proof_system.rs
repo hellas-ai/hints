@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use ark_bls12_381::Bls12_381;
 use ark_ec::VariableBaseMSM;
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ff::{Field /* FftField */};
@@ -13,11 +12,11 @@ use ark_std::{ops::*, test_rng, UniformRand};
 use crate::kzg::*;
 use crate::utils;
 
-pub type KZG = KZG10<Bls12_381, UniPoly381>;
-pub type UniPoly381 = DensePolynomial<<Bls12_381 as Pairing>::ScalarField>;
-pub type F = ark_bls12_381::Fr;
-pub type G1 = <Bls12_381 as Pairing>::G1Affine;
-pub type G2 = <Bls12_381 as Pairing>::G2Affine;
+pub type KZG = KZG10<ark_blst::Bls12, UniPoly381>;
+pub type UniPoly381 = DensePolynomial<<ark_blst::Bls12 as Pairing>::ScalarField>;
+pub type F = <ark_blst::Bls12 as Pairing>::ScalarField;
+pub type G1 = <ark_blst::Bls12 as Pairing>::G1Affine;
+pub type G2 = <ark_blst::Bls12 as Pairing>::G2Affine;
 
 pub struct Proof {
     agg_pk: G1,
@@ -101,7 +100,7 @@ fn prepare_cache(n: usize) -> Cache {
 }
 
 pub fn main() {
-    let n = 64;
+    let n = 128;
     println!("n = {}", n);
 
     //contains commonly used objects such as lagrange polynomials
@@ -139,7 +138,7 @@ pub fn main() {
 
 pub fn setup(
     n: usize,
-    params: &UniversalParams<Bls12_381>,
+    params: &UniversalParams<ark_blst::Bls12>,
     weights: &Vec<F>,
     sk: &Vec<F>,
 ) -> (VerifierPreprocessing, ProverPreprocessing) {
@@ -212,7 +211,7 @@ pub fn setup(
 }
 
 pub fn prove(
-    params: &UniversalParams<Bls12_381>,
+    params: &UniversalParams<ark_blst::Bls12>,
     pp: &ProverPreprocessing,
     cache: &Cache,
     weights: &Vec<F>,
@@ -332,8 +331,8 @@ fn verify_opening(
     let eval_com: G1 = vp.g_0.clone().mul(evaluation).into();
     let point_com: G2 = vp.h_0.clone().mul(point).into();
 
-    let lhs = <Bls12_381 as Pairing>::pairing(commitment.clone() - eval_com, vp.h_0);
-    let rhs = <Bls12_381 as Pairing>::pairing(opening_proof.clone(), vp.h_1 - point_com);
+    let lhs = <ark_blst::Bls12 as Pairing>::pairing(commitment.clone() - eval_com, vp.h_0);
+    let rhs = <ark_blst::Bls12 as Pairing>::pairing(opening_proof.clone(), vp.h_1 - point_com);
     assert_eq!(lhs, rhs);
 }
 
@@ -364,8 +363,8 @@ fn verify_openings(vp: &VerifierPreprocessing, π: &Proof) {
         + b_check_q_of_r_argument.mul(π.r.pow([6])))
     .into_affine();
 
-    let lhs = <Bls12_381 as Pairing>::pairing(merged_argument, vp.h_0);
-    let rhs = <Bls12_381 as Pairing>::pairing(
+    let lhs = <ark_blst::Bls12 as Pairing>::pairing(merged_argument, vp.h_0);
+    let rhs = <ark_blst::Bls12 as Pairing>::pairing(
         π.merged_proof,
         vp.h_1 - vp.h_0.clone().mul(π.r).into_affine(),
     );
@@ -399,10 +398,10 @@ pub fn verify(vp: &VerifierPreprocessing, π: &Proof) {
         (ω_pow_n_minus_1 / F::from(n)) * (vanishing_of_r / (π.r - ω_pow_n_minus_1));
 
     //assert polynomial identity for the secret part
-    let lhs = <Bls12_381 as Pairing>::pairing(&π.b_of_x_com, &vp.sk_of_x_com);
-    let x1 = <Bls12_381 as Pairing>::pairing(&π.sk_q1_com, &vp.vanishing_com);
-    let x2 = <Bls12_381 as Pairing>::pairing(&π.sk_q2_com, &vp.x_monomial_com);
-    let x3 = <Bls12_381 as Pairing>::pairing(&π.agg_pk, &vp.h_0);
+    let lhs = <ark_blst::Bls12 as Pairing>::pairing(&π.b_of_x_com, &vp.sk_of_x_com);
+    let x1 = <ark_blst::Bls12 as Pairing>::pairing(&π.sk_q1_com, &vp.vanishing_com);
+    let x2 = <ark_blst::Bls12 as Pairing>::pairing(&π.sk_q2_com, &vp.x_monomial_com);
+    let x3 = <ark_blst::Bls12 as Pairing>::pairing(&π.agg_pk, &vp.h_0);
     let rhs = x1.add(x2).add(x3);
     assert_eq!(lhs, rhs);
 
@@ -441,7 +440,7 @@ fn compute_apk(pp: &ProverPreprocessing, bitmap: &Vec<F>, cache: &Cache) -> G1 {
         exponents.push(if active { l_i_of_0 } else { F::from(0) });
     }
 
-    <<Bls12_381 as Pairing>::G1 as VariableBaseMSM>::msm(&pp.pks[..], &exponents)
+    <<ark_blst::Bls12 as Pairing>::G1 as VariableBaseMSM>::msm(&pp.pks[..], &exponents)
         .unwrap()
         .into_affine()
 }
@@ -463,7 +462,7 @@ fn preprocess_q1_contributions(q1_contributions: &Vec<Vec<G1>>) -> Vec<G1> {
     q1_coms
 }
 
-fn filter_and_add(params: &UniversalParams<Bls12_381>, elements: &Vec<G1>, bitmap: &Vec<F>) -> G1 {
+fn filter_and_add(params: &UniversalParams<ark_blst::Bls12>, elements: &Vec<G1>, bitmap: &Vec<F>) -> G1 {
     let mut com = get_zero_poly_com_g1(&params);
     for i in 0..bitmap.len() {
         if bitmap[i] == F::from(1) {
@@ -473,7 +472,7 @@ fn filter_and_add(params: &UniversalParams<Bls12_381>, elements: &Vec<G1>, bitma
     com
 }
 
-fn add_all_g2(params: &UniversalParams<Bls12_381>, elements: &Vec<G2>) -> G2 {
+fn add_all_g2(params: &UniversalParams<ark_blst::Bls12>, elements: &Vec<G2>) -> G2 {
     let mut com = get_zero_poly_com_g2(&params);
     for i in 0..elements.len() {
         com = com.add(elements[i]).into_affine();
@@ -481,17 +480,17 @@ fn add_all_g2(params: &UniversalParams<Bls12_381>, elements: &Vec<G2>) -> G2 {
     com
 }
 
-fn get_zero_poly_com_g1(params: &UniversalParams<Bls12_381>) -> G1 {
+fn get_zero_poly_com_g1(params: &UniversalParams<ark_blst::Bls12>) -> G1 {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
     KZG::commit_g1(&params, &zero_poly).unwrap()
 }
 
-fn get_zero_poly_com_g2(params: &UniversalParams<Bls12_381>) -> G2 {
+fn get_zero_poly_com_g2(params: &UniversalParams<ark_blst::Bls12>) -> G2 {
     let zero_poly = utils::compute_constant_poly(&F::from(0));
     KZG::commit_g2(&params, &zero_poly).unwrap()
 }
 
-fn sample_secret_keys(num_parties: usize) -> Vec<F> {
+pub(crate) fn sample_secret_keys(num_parties: usize) -> Vec<F> {
     let mut rng = test_rng();
     let mut keys = vec![];
     for _ in 0..num_parties {
@@ -500,7 +499,7 @@ fn sample_secret_keys(num_parties: usize) -> Vec<F> {
     keys
 }
 
-fn compute_poly(v: &Vec<F>) -> DensePolynomial<F> {
+pub(crate) fn compute_poly(v: &Vec<F>) -> DensePolynomial<F> {
     let n = v.len();
     let mut evals = vec![];
     for i in 0..n {
@@ -512,7 +511,7 @@ fn compute_poly(v: &Vec<F>) -> DensePolynomial<F> {
     eval_form.interpolate()
 }
 
-fn compute_psw_poly(weights: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
+pub(crate) fn compute_psw_poly(weights: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
     let n = weights.len();
     let mut parsum = F::from(0);
     let mut evals = vec![];
@@ -528,7 +527,7 @@ fn compute_psw_poly(weights: &Vec<F>, bitmap: &Vec<F>) -> DensePolynomial<F> {
 }
 
 fn party_i_setup_material(
-    params: &UniversalParams<Bls12_381>,
+    params: &UniversalParams<ark_blst::Bls12>,
     n: usize,
     i: usize,
     sk_i: &F,

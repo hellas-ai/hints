@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use ark_bls12_381::Bls12_381;
+use ark_ark_blst::Bls12::ark_blst::Bls12;
 use ark_ec::VariableBaseMSM;
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ff::{Field /* FftField */};

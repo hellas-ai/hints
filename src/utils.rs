@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use ark_ec::pairing::Pairing;
 use ark_ff::{Field, /* FftField */ };
 use ark_poly::{
     Polynomial,
@@ -9,7 +10,7 @@ use ark_poly::{
     Evaluations
 };
 //use ark_std::{UniformRand, test_rng, ops::*};
-type F = ark_bls12_381::Fr;
+type F = <ark_blst::Bls12 as Pairing>::ScalarField;
 
 //returns t(X) = X^n - 1
 pub fn compute_vanishing_poly(n: usize) -> DensePolynomial<F> {
