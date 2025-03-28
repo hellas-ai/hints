@@ -81,15 +81,18 @@ pub fn main() {
     end_timer!(parallel_work);
 
     let setup = start_timer!(|| "Setup");
-    let (ak, vk, hint_errors) =
-        finish_setup(&gd, n, pks, &hints, weights.clone()).expect("Failed to finish setup");
+    let SetupResult {
+        agg_key,
+        vk,
+        party_errors,
+    } = finish_setup(&gd, n, pks, &hints, weights.clone()).expect("Failed to finish setup");
     end_timer!(setup);
 
     assert_eq!(
-        hint_errors.len(),
+        party_errors.len(),
         0,
         "Hint generation was not consistent with the finished setup: {:?}",
-        hint_errors
+        party_errors
     );
 
     // -------------- sample proof specific values ---------------
@@ -97,7 +100,7 @@ pub fn main() {
     let bitmap = sample_bitmap(n - 1, 0.9);
 
     let proving = start_timer!(|| "SNARK proof generation");
-    let proof = black_box(prove(&gd.params, &gd.cache, &ak, weights.clone(), bitmap).unwrap());
+    let proof = black_box(prove(&gd.params, &gd.cache, &agg_key, weights.clone(), bitmap).unwrap());
     end_timer!(proving);
 
     let verification = start_timer!(|| "SNARK proof verification");
@@ -116,7 +119,7 @@ pub fn main() {
     end_timer!(signing);
 
     let aggregation = start_timer!(|| "Signature aggregation");
-    let sig = sign_aggregate(&gd, &ak, F::one(), &partials, weights, b"hello").unwrap();
+    let sig = sign_aggregate(&gd, &agg_key, F::one(), &partials, weights, b"hello").unwrap();
     end_timer!(aggregation);
 
     let verification = start_timer!(|| "Signature verification");

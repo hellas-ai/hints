@@ -1,6 +1,5 @@
 use hints::snark::{
-    finish_setup, hintgen, prove, verify_proof, AggregationKey, Cache, G1Projective, G2Projective,
-    GlobalData, Hint, VerifierKey, F, G1, KZG,
+    finish_setup, hintgen, prove, verify_proof, AggregationKey, Cache, G1Projective, G2Projective, GlobalData, Hint, SetupResult, VerifierKey, F, G1, KZG
 };
 use hints::{
     keygen, partial_verify, sign_aggregate, verify_aggregate, HintsError, PartialSignature,
@@ -85,13 +84,13 @@ fn run_proptest_finish_setup(
     weights: Vec<F>,
 ) -> Result<(AggregationKey, VerifierKey), HintsError> {
     let domain_max = PROPTEST_DOMAIN_MAX;
-    let (ak, vk, hint_errors) = finish_setup(gd, domain_max, pks, hints, weights)?;
+    let SetupResult { agg_key, vk, party_errors } = finish_setup(gd, domain_max, pks, hints, weights)?;
     assert!(
-        hint_errors.is_empty(),
+        party_errors.is_empty(),
         "Hint verification failed unexpectedly: {:?}",
-        hint_errors
+        party_errors
     );
-    Ok((ak, vk))
+    Ok((agg_key, vk))
 }
 
 /// Runs finish_setup and asserts that there are no hint errors for valid inputs.
@@ -102,13 +101,13 @@ fn run_finish_setup(
     hints: &[Hint],
     weights: Vec<F>,
 ) -> Result<(AggregationKey, VerifierKey), HintsError> {
-    let (ak, vk, hint_errors) = finish_setup(gd, domain_max, pks, hints, weights)?;
+    let SetupResult { agg_key, vk, party_errors } = finish_setup(gd, domain_max, pks, hints, weights)?;
     assert!(
-        hint_errors.is_empty(),
+        party_errors.is_empty(),
         "Hint verification failed unexpectedly: {:?}",
-        hint_errors
+        party_errors
     );
-    Ok((ak, vk))
+    Ok((agg_key, vk))
 }
 
 /// Generates partial signatures for a subset of participants.
@@ -311,17 +310,17 @@ fn test_invalid_hint_finish_setup() {
     hints[1] = invalid_hint;
 
     // Run finish_setup - expect success but with a reported error
-    let (ak, vk, hint_errors) = finish_setup(&gd, domain_max, pks.clone(), &hints, weights.clone())
+    let SetupResult { agg_key, vk, party_errors } = finish_setup(&gd, domain_max, pks.clone(), &hints, weights.clone())
         .expect("Finish setup itself should not fail here");
 
     // Check that the error for participant 1 was reported
-    assert_eq!(hint_errors.len(), 1);
-    assert_eq!(hint_errors[0].0, 1); // Index of the faulty party
+    assert_eq!(party_errors.len(), 1);
+    assert_eq!(party_errors[0].0, 1); // Index of the faulty party
     assert!(matches!(
-        hint_errors[0].1,
+        party_errors[0].1,
         hints::snark::PartyError::PairingCheckFailed
     ));
-    assert!(ak.failed_hint_indices.contains(&1));
+    assert!(agg_key.failed_hint_indices.contains(&1));
 
     // Try to aggregate signatures - include participant 1
     let indices_to_sign: Vec<usize> = (0..n_participants).collect(); // Try 0, 1, 2
@@ -331,7 +330,7 @@ fn test_invalid_hint_finish_setup() {
     let threshold = weights[0] + weights[2];
 
     // Aggregate - should succeed, automatically ignoring participant 1 due to failed hint
-    let signature = ak
+    let signature = agg_key
         .aggregate(&gd, threshold, &partials, weights.clone(), msg)
         .expect("Aggregation should succeed, ignoring party with failed hint");
 

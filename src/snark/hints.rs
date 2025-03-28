@@ -145,6 +145,13 @@ pub enum PartyError {
     PairingCheckFailed,
 }
 
+#[derive(Debug)]
+pub struct SetupResult {
+    pub agg_key: AggregationKey,
+    pub vk: VerifierKey,
+    pub party_errors: Vec<(usize, PartyError)>,
+}
+
 /// FinishSetup: Verify hints and compute aggregated keys (AK, VK).
 ///
 /// This needs to be rerun any time the weights change(!)
@@ -154,7 +161,7 @@ pub fn finish_setup(
     keys: Vec<PublicKey>,
     hints: &[Hint],
     weights: Vec<F>,
-) -> Result<(AggregationKey, VerifierKey, Vec<(usize, PartyError)>), HintsError> {
+) -> Result<SetupResult, HintsError> {
     if domain_max == 0 || domain_max & (domain_max - 1) != 0 {
         return Err(HintsError::InvalidInput(
             "n must be a power of 2".to_string(),
@@ -285,5 +292,9 @@ pub fn finish_setup(
         failed_hint_indices,
     };
 
-    Ok((pp, vp, party_errors))
+    Ok(SetupResult {
+        agg_key: pp,
+        vk: vp,
+        party_errors,
+    })
 }
