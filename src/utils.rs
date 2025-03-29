@@ -43,7 +43,9 @@ pub fn lagrange_poly(domain_max: usize, i: usize) -> DensePolynomial<F> {
 
 // returns t(X) = X
 pub fn compute_x_monomial() -> DensePolynomial<F> {
-    DensePolynomial { coeffs: vec![F::from(0), F::from(1)] }
+    DensePolynomial {
+        coeffs: vec![F::from(0), F::from(1)],
+    }
 }
 
 // returns t(X) = c

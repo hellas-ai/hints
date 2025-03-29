@@ -2,7 +2,7 @@ use ark_ec::CurveGroup;
 use ark_ff::Field;
 use ark_poly::{EvaluationDomain, Polynomial, Radix2EvaluationDomain};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{ops::*, test_rng, UniformRand, Zero};
+use ark_std::{ops::*, Zero};
 
 use crate::{HintsError, PublicKey};
 
@@ -29,15 +29,7 @@ pub struct Proof {
     pub b_wff_q_of_r: F,
     pub b_check_q_of_r: F,
 
-    pub psw_of_x_com: G1,
-    pub b_of_x_com: G1,
-    pub psw_wff_q_of_x_com: G1,
-    pub psw_check_q_of_x_com: G1,
-    pub b_wff_q_of_x_com: G1,
-    pub b_check_q_of_x_com: G1,
-
-    pub sk_q1_com: G1,
-    pub sk_q2_com: G1,
+    pub coms: ProofCommitments,
 }
 
 /// Parameters used for aggregating proofs.
@@ -48,18 +40,24 @@ pub struct AggregationKey {
     pub q1_coms: Vec<G1>,    //preprocessed contributions for pssk_q1
     pub q2_coms: Vec<G1>,    //preprocessed contributions for pssk_q2
     pub failed_hint_indices: Vec<usize>,
+    // Add commitments from VerifierKey needed for FS transcript consistency
+    pub vk_l_n_minus_1_com: G1,
+    pub vk_w_of_x_com: G1,
+    pub vk_sk_of_x_com: G2,
+    pub vk_vanishing_com: G2,
+    pub vk_x_monomial_com: G2,
 }
 
 /// Prove a proof for an aggregated signature.
 pub fn prove(
-    params: &UniversalParams<Curve>,
-    cache: &Cache,
+    gd: &GlobalData,
     ak: &AggregationKey,
     weights: Vec<F>,
     bitmap: Vec<F>,
 ) -> Result<Proof, HintsError> {
     // compute the nth root of unity
     let n = ak.domain_max;
+    let params = &gd.params;
 
     if weights.len() != n - 1 || bitmap.len() != n - 1 {
         return Err(HintsError::InvalidInput(format!(
@@ -83,14 +81,9 @@ pub fn prove(
     //bitmap's last element must be 1 for our scheme
     let bitmap_aug = F::from(1);
 
-    let mut rng = test_rng();
-    let r = F::rand(&mut rng);
-
     //compute all the scalars we will need in the prover
-    let domain =
-        Radix2EvaluationDomain::<F>::new(n).ok_or(HintsError::PolynomialDegreeTooLarge)?;
+    let domain = Radix2EvaluationDomain::<F>::new(n).ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
-    let r_div_ω: F = r / ω;
     let ω_inv: F = F::from(1) / ω;
 
     //compute all the polynomials we will need in the prover (degree n-1)
@@ -130,7 +123,37 @@ pub fn prove(
 
     // --- Use the full pk list and full bitmap for agg_pk ---
     // cache.lagrange_polynomials should have length n
-    let agg_pk = compute_apk(&pks_full, &cache.lagrange_polynomials, &bitmap_full);
+    let agg_pk = compute_apk(&pks_full, &gd.cache.lagrange_polynomials, &bitmap_full);
+
+    // Commit to polynomials (prover's first round messages)
+    let psw_of_x_com = KZG::commit_g1(params, &psw_of_x)?;
+    let b_of_x_com = KZG::commit_g1(params, &b_of_x)?;
+    let psw_wff_q_of_x_com = KZG::commit_g1(params, &psw_wff_q_of_x)?;
+    let psw_check_q_of_x_com = KZG::commit_g1(params, &psw_check_q_of_x)?;
+    let b_wff_q_of_x_com = KZG::commit_g1(params, &b_wff_q_of_x)?;
+    let b_check_q_of_x_com = KZG::commit_g1(params, &b_check_q_of_x)?;
+
+    // --- Fiat-Shamir: Compute challenge r ---
+    let commitments = ProofCommitments {
+        psw_of_x_com,
+        b_of_x_com,
+        psw_wff_q_of_x_com,
+        psw_check_q_of_x_com,
+        b_wff_q_of_x_com,
+        b_check_q_of_x_com,
+        sk_q1_com,
+        sk_q2_com,
+    };
+
+    let r = compute_challenge_r(
+        &gd.cache.lockstitch,
+        ak, // AggregationKey implements FiatShamirTranscriptData
+        &agg_pk,
+        &total_active_weight,
+        &commitments,
+    )?;
+    let r_div_ω: F = r / ω;
+    // --- End Fiat-Shamir ---
 
     // --- Compute Opening Proofs ---
     let psw_of_r_proof = KZG::compute_opening_proof(params, &psw_of_x, &r)?;
@@ -167,13 +190,6 @@ pub fn prove(
         b_wff_q_of_r: b_wff_q_of_x.evaluate(&r),
         b_check_q_of_r: b_check_q_of_x.evaluate(&r),
         merged_proof, // Ensure it's Affine
-        psw_of_x_com: KZG::commit_g1(params, &psw_of_x)?,
-        b_of_x_com: KZG::commit_g1(params, &b_of_x)?,
-        psw_wff_q_of_x_com: KZG::commit_g1(params, &psw_wff_q_of_x)?,
-        psw_check_q_of_x_com: KZG::commit_g1(params, &psw_check_q_of_x)?,
-        b_wff_q_of_x_com: KZG::commit_g1(params, &b_wff_q_of_x)?,
-        b_check_q_of_x_com: KZG::commit_g1(params, &b_check_q_of_x)?,
-        sk_q1_com,
-        sk_q2_com,
+        coms: commitments,
     })
 }

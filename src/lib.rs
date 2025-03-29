@@ -27,6 +27,7 @@ pub enum HintsError {
     PolynomialDegreeTooLarge,
     ProofVerificationError(String),
     HintVerificationError(String),
+    VerificationStep(&'static str),
     TrustedSetupError(trusted_setup::TrustedSetupError),
     InvalidInput(String),
     ThresholdNotMet,
@@ -57,6 +58,7 @@ impl std::fmt::Display for HintsError {
             }
             HintsError::ProofVerificationError(s) => write!(f, "Proof verification failed: {}", s),
             HintsError::HintVerificationError(s) => write!(f, "Hint verification failed: {}", s),
+            HintsError::VerificationStep(s) => write!(f, "failing step: {}", s),
             HintsError::TrustedSetupError(e) => write!(f, "Trusted setup error: {:?}", e),
             HintsError::InvalidInput(s) => write!(f, "Invalid input: {}", s),
             HintsError::ThresholdNotMet => write!(f, "Aggregated weight does not meet threshold"),
@@ -118,8 +120,13 @@ pub struct Signature {
 }
 
 impl Signature {
-    pub fn verify(&self, crs: &VerifierKey, msg: &[u8]) -> Result<bool, HintsError> {
-        verify_aggregate(crs, self, msg)
+    pub fn verify(
+        &self,
+        gd: &GlobalData,
+        vp: &VerifierKey,
+        msg: &[u8],
+    ) -> Result<bool, HintsError> {
+        verify_aggregate(gd, vp, self, msg)
     }
 }
 
@@ -197,7 +204,7 @@ pub fn partial_verify(
 
 /// Aggregate partial signatures and generate the final signature with proof.
 pub fn sign_aggregate(
-    crs: &GlobalData,
+    gd: &GlobalData,
     ak: &AggregationKey,
     threshold: F,
     partial_sigs: &[(usize, PartialSignature)],
@@ -220,7 +227,7 @@ pub fn sign_aggregate(
         } // Skip party if hint failed
 
         let pk = &ak.pks[*i];
-        if crate::partial_verify(crs, pk, msg, partial_sig) {
+        if crate::partial_verify(gd, pk, msg, partial_sig) {
             bitmap[*i] = F::one();
             valid_sigs.push(*partial_sig);
             signer_indices.push(*i);
@@ -246,7 +253,7 @@ pub fn sign_aggregate(
         .mul_bigint(F::from(n as u64).inverse().unwrap().into_bigint())
         .into_affine();
 
-    let proof = prove(&crs.params, &crs.cache, ak, weights, bitmap)?;
+    let proof = prove(gd, ak, weights, bitmap)?;
 
     // --- Package Signature ---
     Ok(Signature {
@@ -257,7 +264,12 @@ pub fn sign_aggregate(
 }
 
 /// Verify: Check the aggregated signature against the threshold and VK.
-pub fn verify_aggregate(vp: &VerifierKey, sig: &Signature, msg: &[u8]) -> Result<bool, HintsError> {
+pub fn verify_aggregate(
+    gd: &GlobalData,
+    vp: &VerifierKey,
+    sig: &Signature,
+    msg: &[u8],
+) -> Result<bool, HintsError> {
     // 1. Check threshold
     if sig.proof.agg_weight < sig.threshold {
         return Err(HintsError::ThresholdNotMet);
@@ -266,10 +278,14 @@ pub fn verify_aggregate(vp: &VerifierKey, sig: &Signature, msg: &[u8]) -> Result
     // 2. Call Internal Verifier (SNARK check)
     // Adapt proof_system::verify signature or call directly
     // It needs vk-like data and the proof parts from sig
-    if !verify_proof(vp, &sig.proof)? {
-        return Err(HintsError::ProofVerificationError(
-            "SNARK failed to verify".to_string(),
-        ));
+    match verify_proof(gd, vp, &sig.proof) {
+        Ok(()) => {}
+        Err(e) => {
+            return Err(HintsError::ProofVerificationError(format!(
+                "SNARK failed to verify: {}",
+                e
+            )))
+        }
     }
 
     // 3. Final BLS Check
@@ -295,7 +311,7 @@ impl AggregationKey {
         weights: Vec<F>,
         bitmap: Vec<F>,
     ) -> Result<Proof, HintsError> {
-        prove(&gd.params, &gd.cache, self, weights, bitmap)
+        prove(gd, self, weights, bitmap)
     }
 
     pub fn aggregate(
@@ -311,8 +327,13 @@ impl AggregationKey {
 }
 
 impl VerifierKey {
-    pub fn verify_aggregate(&self, sig: &crate::Signature, msg: &[u8]) -> Result<bool, HintsError> {
-        crate::verify_aggregate(self, sig, msg)
+    pub fn verify_aggregate(
+        &self,
+        gd: &GlobalData,
+        sig: &crate::Signature,
+        msg: &[u8],
+    ) -> Result<bool, HintsError> {
+        crate::verify_aggregate(gd, self, sig, msg)
     }
 }
 

@@ -74,7 +74,7 @@ let partials: Vec<(usize, PartialSignature)> = sk.iter()
 let sig = agg_key.aggregate(&gd, F::from(1), &partials, weights, b"hello").unwrap();
 
 // Verify the aggregated signature
-let result = sig.verify(&vk, b"hello").unwrap();
+let result = sig.verify(&gd, &vk, b"hello").unwrap();
 assert!(result);
 ```
 

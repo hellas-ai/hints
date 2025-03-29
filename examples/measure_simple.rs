@@ -99,14 +99,11 @@ pub fn main() {
     let bitmap = sample_bitmap(n - 1, 0.9);
 
     let proving = start_timer!(|| "SNARK proof generation");
-    let proof = black_box(prove(&gd.params, &gd.cache, &agg_key, weights.clone(), bitmap).unwrap());
+    let proof = black_box(prove(&gd, &agg_key, weights.clone(), bitmap).unwrap());
     end_timer!(proving);
 
     let verification = start_timer!(|| "SNARK proof verification");
-    assert!(
-        verify_proof(&vk, &proof).expect("Failed to verify proof"),
-        "Proof is invalid"
-    );
+    verify_proof(&gd, &vk, &proof).expect("Proof is invalid");
     end_timer!(verification);
 
     let signing = start_timer!(|| "Signature generation");
@@ -123,7 +120,7 @@ pub fn main() {
 
     let verification = start_timer!(|| "Signature verification");
     assert!(
-        verify_aggregate(&vk, &sig, b"hello").unwrap(),
+        verify_aggregate(&gd, &vk, &sig, b"hello").unwrap(),
         "Signature is invalid"
     );
     end_timer!(verification);

@@ -147,7 +147,9 @@ fn test_full_workflow_success() {
         .expect("Aggregation failed");
 
     // Verify
-    let result = signature.verify(&vk, msg).expect("Verification failed");
+    let result = signature
+        .verify(&gd, &vk, msg)
+        .expect("Verification failed");
     assert!(result, "Signature verification should succeed");
 }
 
@@ -180,7 +182,9 @@ fn test_subset_signs_success() {
         .expect("Aggregation failed");
 
     // Verify
-    let result = signature.verify(&vk, msg).expect("Verification failed");
+    let result = signature
+        .verify(&gd, &vk, msg)
+        .expect("Verification failed");
     assert!(result, "Signature verification should succeed");
 }
 
@@ -256,7 +260,9 @@ fn test_invalid_partial_signature_ignored() {
         .expect("Aggregation should succeed by ignoring invalid partial");
 
     // Verify
-    let result = signature.verify(&vk, msg).expect("Verification failed");
+    let result = signature
+        .verify(&gd, &vk, msg)
+        .expect("Verification failed");
     assert!(
         result,
         "Signature verification should succeed with only valid partials considered"
@@ -289,7 +295,7 @@ fn test_wrong_message_verification_fails() {
         .expect("Aggregation failed");
 
     // Verify against msg2 - expect error
-    let result = signature.verify(&vk, msg2);
+    let result = signature.verify(&gd, &vk, msg2);
     assert!(
         matches!(result, Err(HintsError::BlsVerificationFailed)),
         "Expected BlsVerificationFailed error for wrong message, got {:?}",
@@ -344,7 +350,9 @@ fn test_invalid_hint_finish_setup() {
         .expect("Aggregation should succeed, ignoring party with failed hint");
 
     // Verify - should succeed
-    let result = signature.verify(&vk, msg).expect("Verification failed");
+    let result = signature
+        .verify(&gd, &vk, msg)
+        .expect("Verification failed");
     assert!(result, "Verification should succeed");
 
     // Verify that the proof weight only includes 0 and 2
@@ -469,7 +477,7 @@ proptest! {
         match aggregate_result {
             Ok(signature) => {
                 // Verify
-                match signature.verify(&vk, &msg) {
+                match signature.verify(&gd, &vk, &msg) {
                     Ok(true) => Ok(()), // Proptest success = Ok(())
                     Ok(false) => Err(TestCaseError::fail("Verification returned false")),
                     Err(e) => Err(TestCaseError::fail(format!("Verification failed: {:?}", e))),
@@ -549,7 +557,7 @@ proptest! {
         };
 
         // Verify against msg2 - expect BlsVerificationFailed error
-        let verify_result = signature.verify(&vk, &msg2);
+        let verify_result = signature.verify(&gd, &vk, &msg2);
 
         match verify_result {
             Err(HintsError::BlsVerificationFailed) => Ok(()), // Expected failure

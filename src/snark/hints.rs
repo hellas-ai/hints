@@ -284,12 +284,21 @@ pub fn finish_setup(
     // The proof system's filter_and_add expects the full list and filters based on bitmap.
     // Let's pass the full list for now.
 
+    // Filter q1_coms and q2_coms based on failed_hint_indices?
+    // The proof system's filter_and_add expects the full list and filters based on bitmap.
+    // Let's pass the full list for now.
+
     let pp = AggregationKey {
         domain_max,
         pks: keys,
         q1_coms,
         q2_coms,
         failed_hint_indices,
+        vk_l_n_minus_1_com: vp.l_n_minus_1_of_x_com,
+        vk_vanishing_com: vp.vanishing_com,
+        vk_x_monomial_com: vp.x_monomial_com,
+        vk_w_of_x_com: vp.w_of_x_com,
+        vk_sk_of_x_com: vp.sk_of_x_com,
     };
 
     Ok(SetupResult {
