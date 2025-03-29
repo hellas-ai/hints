@@ -342,4 +342,4 @@ impl VerifierKey {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;
