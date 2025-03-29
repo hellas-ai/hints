@@ -14,7 +14,7 @@ use ark_ec::hashing::curve_maps::wb::WBMap;
 pub mod kzg;
 pub mod snark;
 pub(crate) mod trusted_setup;
-pub(crate) mod utils;
+pub mod utils;
 
 use kzg::UniversalParams;
 use snark::*;

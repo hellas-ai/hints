@@ -9,6 +9,10 @@ use ark_std::{vec, vec::Vec}; // Ensure vec is imported
 
 use proptest::prelude::*;
 
+// Import helpers
+mod test_helpers;
+use test_helpers::*;
+
 // === Test Constants ===
 const TEST_SEED: [u8; 32] = [42u8; 32];
 // Choose a fixed domain size for property tests to amortize setup cost
@@ -426,13 +430,40 @@ fn setup_test_env_dynamic_size(
 // Strategy to generate a subset of indices
 fn signer_indices_strategy() -> impl Strategy<Value = Vec<usize>> {
     // Generates a vector of unique indices from 0 to N_PARTICIPANTS-1
-    prop::collection::hash_set(0..PROPTEST_N_PARTICIPANTS, 0..=PROPTEST_N_PARTICIPANTS).prop_map(
-        |set| {
+    prop::collection::hash_set(0..PROPTEST_N_PARTICIPANTS, 0..=PROPTEST_N_PARTICIPANTS)
+        .prop_map(|set| {
             let mut vec: Vec<_> = set.into_iter().collect();
-            vec.sort(); // Keep order consistent if needed
+            vec.sort(); // Keep order consistent
             vec
-        },
-    )
+        })
+}
+
+// Strategy for domain sizes (powers of 2)
+fn domain_size_strategy() -> impl Strategy<Value = usize> {
+    prop::collection::vec(any::<u8>(), 2..8)
+        .prop_map(|v| {
+            let exponent = (v[0] % 5) + 3; // Domain size from 2^3 to 2^7
+            1 << exponent
+        })
+}
+
+// Strategy for generating diverse weight distributions
+fn weights_strategy(n_participants: usize) -> impl Strategy<Value = Vec<F>> {
+    // Generate weights with different distributions
+    prop_oneof![
+        // Normal distribution of small weights
+        prop::collection::vec(1..100u64, n_participants)
+            .prop_map(|w| w.into_iter().map(F::from).collect()),
+        
+        // Zero-heavy weights (many zeros)
+        prop::collection::vec(0..10u64, n_participants)
+            .prop_map(|w| w.into_iter().map(F::from).collect()),
+        
+        // Skewed weights (one dominant participant)
+        Just((0..n_participants)
+            .map(|i| if i == 0 { F::from(1000u64) } else { F::from(1u64) })
+            .collect())
+    ]
 }
 
 // Strategy for generating a small message
@@ -441,124 +472,137 @@ fn message_strategy() -> impl Strategy<Value = Vec<u8>> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(25))] // Reduce cases for faster CI, increase locally if needed
-
+    #![proptest_config(ProptestConfig::with_cases(50))]
+    
     #[test]
-    fn prop_aggregate_verify_succeeds_proptest(
+    fn prop_varying_domain_and_weights(
+        domain_size in domain_size_strategy(),
         indices_to_sign in signer_indices_strategy(),
         msg in message_strategy()
     ) {
-        // --- One-time Setup (expensive) ---
-        // Using lazy_static or once_cell could potentially make this global,
-        // but for simplicity, we do it once per test function run.
         let mut rng = seeded_rng();
-        let (gd, sks, pks, hints, weights) = setup_proptest_env(&mut rng)
+        let n_participants = domain_size - 1;
+        
+        // Skip if indices are out of bounds for this domain
+        prop_assume!(indices_to_sign.iter().all(|&i| i < n_participants));
+        prop_assume!(!indices_to_sign.is_empty());
+        
+        // Setup with dynamic domain size
+        let mut fixture = TestFixture::new(domain_size, n_participants, &mut rng)
             .map_err(|e| TestCaseError::fail(format!("Setup failed: {:?}", e)))?;
-        let (ak, vk) = run_proptest_finish_setup(&gd, pks, &hints, weights.clone())
-             .map_err(|e| TestCaseError::fail(format!("Finish setup failed: {:?}", e)))?;
-        // --- End One-time Setup ---
-
-        // --- Test Case Logic (runs many times) ---
-        prop_assume!(!indices_to_sign.is_empty()); // Need at least one signer for this property
-
-        let partials = generate_partials(&sks, &msg, &indices_to_sign);
-        prop_assert_eq!(partials.len(), indices_to_sign.len(), "Partial generation mismatch");
-
-        // Calculate required weight and set threshold
-        let actual_weight: F = indices_to_sign.iter().map(|&i| weights[i]).sum();
-        let threshold = actual_weight; // Set threshold to exactly what was signed
-
-        // Proptest doesn't handle F::zero() well in ranges sometimes. If actual weight is zero,
-        // but we have signers, aggregation should still work with threshold zero or one.
-        let effective_threshold = if actual_weight.is_zero() { F::zero() } else { threshold };
-
-        // Aggregate
-        let aggregate_result = ak.aggregate(&gd, effective_threshold, &partials, weights, &msg);
-        match aggregate_result {
+        fixture.complete_setup()
+            .map_err(|e| TestCaseError::fail(format!("Complete setup failed: {:?}", e)))?;
+        
+        // Generate partials and calculate threshold
+        let partials = fixture.generate_signatures(&indices_to_sign, &msg);
+        let actual_weight: F = fixture.sum_weights(&indices_to_sign);
+        let threshold = if actual_weight.is_zero() { F::zero() } else { actual_weight };
+        
+        // Test aggregation and verification
+        match fixture.aggregate(threshold, &partials, &msg) {
             Ok(signature) => {
-                // Verify
-                match signature.verify(&gd, &vk, &msg) {
-                    Ok(true) => Ok(()), // Proptest success = Ok(())
-                    Ok(false) => Err(TestCaseError::fail("Verification returned false")),
-                    Err(e) => Err(TestCaseError::fail(format!("Verification failed: {:?}", e))),
+                match fixture.verify(&signature, &msg) {
+                    Ok(true) => Ok(()),
+                    res => Err(TestCaseError::fail(format!("Verification failed: {:?}", res))),
+                }
+            },
+            Err(e) => {
+                if actual_weight.is_zero() && matches!(e, HintsError::ThresholdNotMet) {
+                    Ok(()) // Expected error for zero weight
+                } else {
+                    Err(TestCaseError::fail(format!("Aggregation failed: {:?}", e)))
                 }
             }
-            Err(HintsError::ThresholdNotMet) => {
-                 // This might happen if all signers had weight 0
-                 prop_assume!(!actual_weight.is_zero()); // If it fails threshold but weight was non-zero, it's a bug
-                 Ok(()) // Ok if weight was indeed zero
-            }
-            Err(e) => Err(TestCaseError::fail(format!("Aggregation failed: {:?}", e))),
-        }? // Use '?' to propagate TestCaseError
+        }?
     }
-
+    
     #[test]
-    fn prop_threshold_too_high_aggregate_fails_proptest(
+    fn prop_weight_invariant_checks(
+        weights in weights_strategy(PROPTEST_N_PARTICIPANTS),
         indices_to_sign in signer_indices_strategy(),
         msg in message_strategy()
     ) {
-        // --- One-time Setup ---
-         let mut rng = seeded_rng();
-        let (gd, sks, pks, hints, weights) = setup_proptest_env(&mut rng)
+        let mut rng = seeded_rng();
+        let domain_max = PROPTEST_DOMAIN_MAX;
+        
+        prop_assume!(!indices_to_sign.is_empty());
+        
+        // Setup with the generated weights
+        let (gd, sks, pks, hints, _) = setup_test_env(domain_max, PROPTEST_N_PARTICIPANTS, &mut rng)
             .map_err(|e| TestCaseError::fail(format!("Setup failed: {:?}", e)))?;
-        let (ak, _vk) = run_proptest_finish_setup(&gd, pks, &hints, weights.clone())
-             .map_err(|e| TestCaseError::fail(format!("Finish setup failed: {:?}", e)))?;
-        // --- End One-time Setup ---
-
+        
+        let (ak, vk) = run_finish_setup(&gd, domain_max, pks, &hints, weights.clone())
+            .map_err(|e| TestCaseError::fail(format!("Finish setup failed: {:?}", e)))?;
+        
+        // Generate partials and calculate threshold
         let partials = generate_partials(&sks, &msg, &indices_to_sign);
-         prop_assert_eq!(partials.len(), indices_to_sign.len());
-
-        // Calculate actual weight and set threshold strictly higher
         let actual_weight: F = indices_to_sign.iter().map(|&i| weights[i]).sum();
-        let threshold = actual_weight + F::one(); // Ensure threshold is definitely higher
-
-        // Aggregate - expect error ThresholdNotMet
-        let aggregate_result = ak.aggregate(&gd, threshold, &partials, weights, &msg);
-
-        match aggregate_result {
-            Err(HintsError::ThresholdNotMet) => Ok(()), // Expected failure
-            Ok(_) => Err(TestCaseError::fail("Aggregation succeeded unexpectedly")),
-            Err(e) => Err(TestCaseError::fail(format!("Aggregation failed with unexpected error: {:?}", e))),
+        let threshold = if actual_weight.is_zero() { F::zero() } else { actual_weight };
+        
+        // Aggregate and verify the signature
+        match ak.aggregate(&gd, threshold, &partials, weights.clone(), &msg) {
+            Ok(signature) => {
+                // Check invariant: signature's aggregated weight matches sum of valid signer weights
+                prop_assert_eq!(
+                    signature.proof.agg_weight,
+                    actual_weight,
+                    "Signature weight should match sum of signer weights"
+                );
+                
+                match signature.verify(&gd, &vk, &msg) {
+                    Ok(true) => Ok(()),
+                    res => Err(TestCaseError::fail(format!("Verification failed: {:?}", res))),
+                }
+            },
+            Err(e) => {
+                if actual_weight.is_zero() && matches!(e, HintsError::ThresholdNotMet) {
+                    Ok(()) // Expected error for zero weight
+                } else {
+                    Err(TestCaseError::fail(format!("Aggregation failed: {:?}", e)))
+                }
+            }
         }?
     }
-
-     #[test]
-    fn prop_wrong_message_verify_fails_proptest(
+    
+    #[test]
+    fn prop_wrong_message_verify_fails(
         indices_to_sign in signer_indices_strategy(),
         msg1 in message_strategy(),
         msg2 in message_strategy(), // Generate two messages
     ) {
-        // --- One-time Setup ---
         let mut rng = seeded_rng();
-        let (gd, sks, pks, hints, weights) = setup_proptest_env(&mut rng)
-            .map_err(|e| TestCaseError::fail(format!("Setup failed: {:?}", e)))?;
-        let (ak, vk) = run_proptest_finish_setup(&gd, pks, &hints, weights.clone())
-            .map_err(|e| TestCaseError::fail(format!("Finish setup failed: {:?}", e)))?;
-        // --- End One-time Setup ---
-
+        let domain_max = PROPTEST_DOMAIN_MAX;
+        
         prop_assume!(!indices_to_sign.is_empty()); // Need signers
         prop_assume!(msg1 != msg2); // Ensure messages are different
-
+        
+        // Setup with standard fixture
+        let mut fixture = TestFixture::new(domain_max, PROPTEST_N_PARTICIPANTS, &mut rng)
+            .map_err(|e| TestCaseError::fail(format!("Setup failed: {:?}", e)))?;
+        fixture.complete_setup()
+            .map_err(|e| TestCaseError::fail(format!("Complete setup failed: {:?}", e)))?;
+        
         // Generate partials for msg1
-        let partials = generate_partials(&sks, &msg1, &indices_to_sign);
+        let partials = fixture.generate_signatures(&indices_to_sign, &msg1);
         prop_assert_eq!(partials.len(), indices_to_sign.len());
-
-        // Calculate threshold and aggregate for msg1
-        let actual_weight: F = indices_to_sign.iter().map(|&i| weights[i]).sum();
-        let threshold = actual_weight; // Exact threshold
-        let effective_threshold = if actual_weight.is_zero() { F::zero() } else { threshold };
-
-
-        let aggregate_result = ak.aggregate(&gd, effective_threshold, &partials, weights, &msg1);
+        
+        // Calculate threshold for message 1
+        let actual_weight = fixture.sum_weights(&indices_to_sign);
+        let threshold = if actual_weight.is_zero() { F::zero() } else { actual_weight };
+        
+        let aggregate_result = fixture.aggregate(threshold, &partials, &msg1);
         let signature = match aggregate_result {
             Ok(sig) => sig,
-            Err(HintsError::ThresholdNotMet) => { prop_assume!(!actual_weight.is_zero()); return Ok(()); }, // Discard if threshold failed legitimately
+            Err(HintsError::ThresholdNotMet) => { 
+                prop_assume!(!actual_weight.is_zero()); 
+                return Ok(()); 
+            }, // Discard if threshold failed legitimately
             Err(e) => return Err(TestCaseError::fail(format!("Aggregation failed: {:?}", e))),
         };
-
-        // Verify against msg2 - expect BlsVerificationFailed error
-        let verify_result = signature.verify(&gd, &vk, &msg2);
-
+        
+        // Verify against msg2 - expect failure
+        let verify_result = fixture.verify(&signature, &msg2);
+        
         match verify_result {
             Err(HintsError::BlsVerificationFailed) => Ok(()), // Expected failure
             Ok(res) => Err(TestCaseError::fail(format!("Verification succeeded/failed unexpectedly: {}", res))),

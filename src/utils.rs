@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+//! Polynomial utilities
 
 use ark_ec::{hashing::HashToCurve, pairing::Pairing, CurveGroup};
 use ark_ff::{Field /* FftField */};
@@ -7,7 +7,6 @@ use ark_poly::{
 };
 
 use crate::HintsError;
-//use ark_std::{UniformRand, test_rng, ops::*};
 type F = <crate::snark::Curve as Pairing>::ScalarField;
 
 //returns t(X) = X^n - 1
@@ -73,7 +72,7 @@ pub fn poly_eval_mult_c(f: &DensePolynomial<F>, c: &F) -> DensePolynomial<F> {
     new_poly
 }
 
-pub(crate) fn compute_poly(
+pub fn compute_poly(
     v: &[F],
     aug: &F,
     domain_max: usize,
@@ -95,7 +94,7 @@ pub(crate) fn compute_poly(
     Ok(eval_form.interpolate())
 }
 
-pub(crate) fn compute_psw_poly(
+pub fn compute_psw_poly(
     weights: &[F], // len n-1
     bitmap: &[F],  // len n-1
     weight_aug: &F,
@@ -129,7 +128,7 @@ pub(crate) fn compute_psw_poly(
     Ok(eval_form.interpolate())
 }
 
-pub(crate) fn hash_to_g2<H: HashToCurve<G>, G: CurveGroup>(msg: &[u8]) -> G::Affine {
+pub fn hash_to_g2<H: HashToCurve<G>, G: CurveGroup>(msg: &[u8]) -> G::Affine {
     let hasher = H::new(b"hints BLS12-381 signature").unwrap();
     hasher.hash(msg).unwrap()
 }
