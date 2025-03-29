@@ -49,7 +49,7 @@ pub(crate) trait FiatShamirTranscriptData {
     fn mix_fs_data(&self, transcript: &mut lockstitch::Protocol) -> Result<(), HintsError>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ProofCommitments {
     pub psw_of_x_com: G1,
     pub b_of_x_com: G1,

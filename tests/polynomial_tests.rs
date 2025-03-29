@@ -7,6 +7,7 @@ use ark_poly::{
 };
 use ark_std::{ops::*, test_rng, One, Zero};
 
+#[path = "test_helpers.rs"]
 mod test_helpers;
 
 fn test_poly_domain_mult(f_of_x: &DensePolynomial<F>, f_of_ωx: &DensePolynomial<F>, ω: &F) {

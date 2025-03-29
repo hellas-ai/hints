@@ -91,6 +91,10 @@ impl SecretKey {
         Self(F::rand(rng))
     }
 
+    pub fn dummy() -> Self {
+        Self(F::from(-1i64))
+    }
+
     pub fn public(&self, gd: &GlobalData) -> PublicKey {
         PublicKey((gd.params.powers_of_g[0] * self.0).into_affine())
     }

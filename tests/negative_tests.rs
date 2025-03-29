@@ -4,6 +4,7 @@ use hints::{HintsError, SecretKey};
 use ark_ff::{One, UniformRand};
 use ark_std::rand::Rng;
 
+#[path = "test_helpers.rs"]
 mod test_helpers;
 use test_helpers::*;
 

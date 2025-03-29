@@ -10,6 +10,7 @@ use ark_std::{vec, vec::Vec}; // Ensure vec is imported
 use proptest::prelude::*;
 
 // Import helpers
+#[path = "test_helpers.rs"]
 mod test_helpers;
 use test_helpers::*;
 

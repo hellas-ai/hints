@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use hints::snark::{
     finish_setup, hintgen, AggregationKey, GlobalData, Hint, SetupResult, VerifierKey, F, KZG,
 };
