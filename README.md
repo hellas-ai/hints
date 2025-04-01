@@ -92,18 +92,8 @@ The security of hinTS is proven in the Algebraic Group Model and relies on the q
 
 ## Performance
 
-Performance metrics on a standard machine:
-- Signing: ~1ms per signature (constant time)
-- Verification: ~17.5ms (constant time)
-- Aggregation: <0.5s for 1000 signers
-
-## Benchmarks
-
-The library includes a comprehensive benchmarking suite powered by Criterion. The benchmarks cover all major operations including:
-
-- Setup operations (KZG, Ethereum trusted setup, insecure setup)
-- Key generation and signature operations
-- SNARK operations (hint generation, setup, proving, verification)
-- Aggregation operations
-- KZG polynomial operations
-- Internal cryptographic operations
+Performance metrics on an Apple M2 Pro:
+- Signing: ~800us per signature (constant time)
+- Verification: ~11ms (constant time)
+- Universe Setup: ~400ms for 128 signers, ~2s for 1024 signers
+- Aggregation: ~300ms for 128 signers, ~3s for 1024 signers

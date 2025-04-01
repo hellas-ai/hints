@@ -128,7 +128,7 @@ fn snark_benchmarks(c: &mut Criterion) {
         // Benchmarks for hint generation
         group.throughput(Throughput::Elements(n as u64));
 
-        group.bench_with_input(BenchmarkId::new("hintgen", n), &n, |b, &n| {
+        group.bench_with_input(BenchmarkId::new("generate_hint", n), &n, |b, &n| {
             let test_sk = sk[0];
             b.iter(|| generate_hint(&gd, &test_sk, n, n - 1).expect("Failed to generate hint"));
         });
@@ -151,7 +151,7 @@ fn snark_benchmarks(c: &mut Criterion) {
 
         let proof = prove(&gd, &univ.agg_key, &weights, &bitmap).expect("Failed to generate proof");
 
-        if n == 128 {
+        if n == 16 {
             // these are unparameterized but need the setup done, just do them once
             group.bench_function("verify_proof", |b| {
                 b.iter(|| {

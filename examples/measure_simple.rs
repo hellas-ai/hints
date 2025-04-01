@@ -88,7 +88,7 @@ pub fn main() {
 
     // -------------- sample proof specific values ---------------
     //samples n-1 random bits
-    let bitmap = sample_bitmap(n - 1, 0.9);
+    let bitmap = sample_bitmap(n - 1, 1.0);
 
     let proving = start_timer!(|| "SNARK proof generation");
     let proof = black_box(prove(&agg.global, &agg.agg_key, &agg.agg_key.weights, &bitmap).unwrap());
