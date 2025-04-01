@@ -35,8 +35,9 @@ pub struct Proof {
 /// Parameters used for aggregating proofs.
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct AggregationKey {
-    pub domain_max: usize,   //size of the committee as a power of 2
+    pub domain_max: usize,
     pub pks: Vec<PublicKey>, //g^sk_i for each party i
+    pub weights: Vec<F>,
     pub q1_coms: Vec<G1>,    //preprocessed contributions for pssk_q1
     pub q2_coms: Vec<G1>,    //preprocessed contributions for pssk_q2
     pub failed_hint_indices: Vec<usize>,
@@ -52,11 +53,11 @@ pub struct AggregationKey {
 pub fn prove(
     gd: &GlobalData,
     ak: &AggregationKey,
-    weights: Vec<F>,
-    bitmap: Vec<F>,
+    weights: &[F],
+    bitmap: &[F],
 ) -> Result<Proof, HintsError> {
     // compute the nth root of unity
-    let n = ak.domain_max;
+    let n = gd.domain_max;
     let params = &gd.params;
 
     if weights.len() != n - 1 || bitmap.len() != n - 1 {
@@ -89,9 +90,9 @@ pub fn prove(
     //compute all the polynomials we will need in the prover (degree n-1)
     let z_of_x = utils::compute_vanishing_poly(n); // X^n - 1
     let l_n_minus_1_of_x = utils::lagrange_poly(n, n - 1); // Uses domain size n
-    let w_of_x = utils::compute_poly(&weights, &weight_aug, n)?;
-    let b_of_x = utils::compute_poly(&bitmap, &bitmap_aug, n)?;
-    let psw_of_x = utils::compute_psw_poly(&weights, &bitmap, &weight_aug, &bitmap_aug, n)?;
+    let w_of_x = utils::compute_poly(weights, &weight_aug, n)?;
+    let b_of_x = utils::compute_poly(bitmap, &bitmap_aug, n)?;
+    let psw_of_x = utils::compute_psw_poly(weights, bitmap, &weight_aug, &bitmap_aug, n)?;
     let psw_of_x_div_ω = utils::poly_domain_mult_ω(&psw_of_x, &ω_inv);
 
     // Compute quotient polynomials
@@ -109,7 +110,7 @@ pub fn prove(
     let b_check_q_of_x = &t_of_x_4 / &z_of_x;
 
     // --- Create the FULL n-element bitmap and pk list for filtering/apk ---
-    let mut bitmap_full = bitmap.clone(); // Starts with n-1 elements
+    let mut bitmap_full = bitmap.to_vec(); // Starts with n-1 elements
     bitmap_full.push(bitmap_aug); // Add the n-th element (which is 1)
 
     let pk_aug = PublicKey((params.powers_of_g[0] * F::zero()).into_affine()); // Identity/Zero Point
@@ -123,7 +124,7 @@ pub fn prove(
 
     // --- Use the full pk list and full bitmap for agg_pk ---
     // cache.lagrange_polynomials should have length n
-    let agg_pk = compute_apk(&pks_full, &gd.cache.lagrange_polynomials, &bitmap_full);
+    let agg_pk = compute_apk(&pks_full, &gd.lagrange_polynomials, &bitmap_full);
 
     // Commit to polynomials (prover's first round messages)
     let psw_of_x_com = KZG::commit_g1(params, &psw_of_x)?;
@@ -146,7 +147,7 @@ pub fn prove(
     };
 
     let r = compute_challenge_r(
-        &gd.cache.lockstitch,
+        &gd.lockstitch,
         ak, // AggregationKey implements FiatShamirTranscriptData
         &agg_pk,
         &total_active_weight,

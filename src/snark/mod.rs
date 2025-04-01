@@ -1,14 +1,17 @@
 //! SNARK for certifying weighted aggregation (implementation detail)
 
+use std::sync::Arc;
+
 use ark_ec::VariableBaseMSM;
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ff::PrimeField;
 use ark_poly::{univariate::DensePolynomial, Polynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::rand::RngCore;
 use ark_std::{One, Zero};
 
-use crate::utils::{self};
-use crate::{kzg::*, HintsError, PublicKey};
+use crate::utils;
+use crate::{kzg::*, HintsError, PublicKey, GlobalData};
 
 mod hints;
 mod prover;
@@ -33,19 +36,10 @@ pub type G2 = <Curve as Pairing>::G2Affine;
 pub type G1Projective = <Curve as Pairing>::G1;
 pub type G2Projective = <Curve as Pairing>::G2;
 
-/// Global data for the SNARK
-///
-/// Contains the KZG10 parameters and the cache of precomputed Lagrange polynomials and commitments.
-#[derive(Clone, Debug)]
-pub struct GlobalData {
-    pub params: UniversalParams<Curve>,
-    pub cache: Cache,
-}
-
-pub(crate) const LOCKSTITCH_DOMAIN: &str = "hints-bls12-381-snark";
+pub const LOCKSTITCH_DOMAIN: &str = "hints-bls12-381-snark";
 
 // Trait to abstract the source of Fiat-Shamir data (VerifierKey or AggregationKey)
-pub(crate) trait FiatShamirTranscriptData {
+pub trait FiatShamirTranscriptData {
     fn mix_fs_data(&self, transcript: &mut lockstitch::Protocol) -> Result<(), HintsError>;
 }
 
@@ -61,52 +55,61 @@ pub struct ProofCommitments {
     pub sk_q2_com: G1,
 }
 
-impl Cache {
-    /// Create a new cache from the given parameters.
-    pub fn from_params(max_degree: usize, params: &UniversalParams<Curve>) -> Self {
-        let lagrange_polynomials: Vec<_> = (0..max_degree)
-            .map(|i| utils::lagrange_poly(max_degree, i))
+impl GlobalData {
+    /// Create a new global data from a randomly generated KZG setup.
+    pub fn new<R: RngCore>(domain_max: usize, rng: &mut R) -> Result<Arc<Self>, HintsError> {
+        let params = KZG::setup(domain_max, rng)?;
+        Self::from_params(params, domain_max)
+    }
+
+    /// Create a new global data from the given parameters.
+    pub fn from_params(
+        params: UniversalParams<Curve>,
+        domain_max: usize,
+    ) -> Result<Arc<Self>, HintsError> {
+        if domain_max == 0 || domain_max & (domain_max - 1) != 0 {
+            return Err(HintsError::InvalidInput(
+                "n must be a power of 2".to_string(),
+            ));
+        }
+
+        if domain_max + 1 > params.powers_of_h.len() {
+            return Err(HintsError::PolynomialDegreeTooLarge);
+        }
+
+        let lagrange_polynomials: Vec<_> = (0..domain_max)
+            .map(|i| utils::lagrange_poly(domain_max, i))
             .collect();
 
         let lagrange_coms_g1 = lagrange_polynomials
             .iter()
-            .map(|h| KZG10::commit_g1(params, h).unwrap())
+            .map(|h| KZG10::commit_g1(&params, h).unwrap())
             .collect();
 
         let lagrange_coms_g2 = lagrange_polynomials
             .iter()
-            .map(|h| KZG10::commit_g2(params, h).unwrap())
+            .map(|h| KZG10::commit_g2(&params, h).unwrap())
             .collect();
 
         let lockstitch = lockstitch::Protocol::new(LOCKSTITCH_DOMAIN);
 
-        Cache {
+        Ok(Arc::new(Self {
+            params,
+            domain_max,
             lagrange_polynomials,
             lagrange_coms_g1,
             lagrange_coms_g2,
             lockstitch,
-        }
+        }))
     }
 }
 
-impl GlobalData {
-    /// Create a new global data from the given parameters.
-    pub fn from_params(max_degree: usize, params: UniversalParams<Curve>) -> Self {
-        let cache = Cache::from_params(max_degree, &params);
-        Self { params, cache }
-    }
-}
-
-/// Cache of precomputed Lagrange polynomials and commitments.
-#[derive(Clone, Debug)]
-pub struct Cache {
-    pub lagrange_polynomials: Vec<DensePolynomial<F>>,
-    pub lagrange_coms_g1: Vec<G1>,
-    pub lagrange_coms_g2: Vec<G2>,
-    pub lockstitch: lockstitch::Protocol,
-}
-
-fn compute_apk(all_pks: &[PublicKey], all_l_polys: &[DensePolynomial<F>], full_bitmap: &[F]) -> G1 {
+/// Compute aggregate public key
+pub fn compute_apk(
+    all_pks: &[PublicKey],
+    all_l_polys: &[DensePolynomial<F>],
+    full_bitmap: &[F],
+) -> G1 {
     let n = full_bitmap.len();
     assert_eq!(all_pks.len(), n, "compute_apk pks length mismatch");
     assert!(
@@ -115,12 +118,12 @@ fn compute_apk(all_pks: &[PublicKey], all_l_polys: &[DensePolynomial<F>], full_b
     );
 
     let unwrapped_pks: Vec<G1> = all_pks.iter().map(|pk| pk.0).collect();
-    let exponents: Vec<F> = (0..n)
-        .map(|i| {
-            let l_i_of_x = &all_l_polys[i];
-            let l_i_of_0 = l_i_of_x.evaluate(&F::zero());
-            if full_bitmap[i].is_one() {
-                l_i_of_0
+    let exponents: Vec<F> = full_bitmap
+        .iter()
+        .zip(all_l_polys.iter())
+        .map(|(bitmap_value, l_i_of_x)| {
+            if bitmap_value.is_one() {
+                l_i_of_x.evaluate(&F::zero())
             } else {
                 F::zero()
             }
@@ -143,30 +146,24 @@ fn mix_object<T: CanonicalSerialize>(
     Ok(())
 }
 
-// Helper function to derive a field element from the transcript
 fn derive_field_element(transcript: &mut lockstitch::Protocol, label: &str) -> F {
-    // Derive 64 bytes, which is usually sufficient for field elements (e.g., 381 bits need ~48 bytes)
-    // We reduce modulo the field order.
-    let mut buf = [0u8; 64];
+    let mut buf = [0u8; 48];
     transcript.derive(label, &mut buf);
     F::from_le_bytes_mod_order(&buf)
 }
 
-// Function to compute the Fiat-Shamir challenge `r`
-// Common logic used by both prover and verifier
-pub(crate) fn compute_challenge_r(
+/// Deterministic Fiat-Shamir style challenge point derivation
+pub fn compute_challenge_r(
     base_transcript: &lockstitch::Protocol,
-    vp_or_ak: &impl FiatShamirTranscriptData, // Use trait for common data access
+    vp_or_ak: &impl FiatShamirTranscriptData,
     agg_pk: &G1,
     agg_weight: &F,
     commitments: &ProofCommitments,
 ) -> Result<F, HintsError> {
-    let mut transcript = base_transcript.clone(); // Start from the base state
+    let mut transcript = base_transcript.clone();
 
-    // Mix common parameters and commitments known by verifier before challenge
     vp_or_ak.mix_fs_data(&mut transcript)?;
 
-    // Mix prover's round 1 messages (commitments)
     mix_object(&mut transcript, "agg_pk", agg_pk)?;
     mix_object(&mut transcript, "agg_weight", agg_weight)?;
     mix_object(&mut transcript, "psw_com", &commitments.psw_of_x_com)?;
@@ -201,7 +198,6 @@ impl FiatShamirTranscriptData for VerifierKey {
     fn mix_fs_data(&self, transcript: &mut lockstitch::Protocol) -> Result<(), HintsError> {
         mix_object(transcript, "domain_max", &self.domain_max)?;
         mix_object(transcript, "ln-1_com", &self.l_n_minus_1_of_x_com)?;
-        // Note: We mix the VerifierKey's w_of_x_com, which is the *initial* one before adjustment
         mix_object(transcript, "w_com", &self.w_of_x_com)?;
         mix_object(transcript, "sk_com", &self.sk_of_x_com)?;
         mix_object(transcript, "vanish_com", &self.vanishing_com)?;
@@ -212,12 +208,7 @@ impl FiatShamirTranscriptData for VerifierKey {
 
 impl FiatShamirTranscriptData for AggregationKey {
     fn mix_fs_data(&self, transcript: &mut lockstitch::Protocol) -> Result<(), HintsError> {
-        // We need to mix the *same* public parameters the verifier uses.
-        // These were computed during finish_setup and stored in VerifierKey,
-        // and then copied/derived into AggregationKey.
         mix_object(transcript, "domain_max", &self.domain_max)?;
-        // g0, h0, h1 are implicitly part of the global params used for commitments
-        // Mix the commitments that correspond to the ones in VerifierKey
         mix_object(transcript, "ln-1_com", &self.vk_l_n_minus_1_com)?;
         mix_object(transcript, "w_com", &self.vk_w_of_x_com)?;
         mix_object(transcript, "sk_com", &self.vk_sk_of_x_com)?;

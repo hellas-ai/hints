@@ -120,7 +120,7 @@ fn verify_openings(vp: &VerifierKey, π: &Proof, r_expected: &F) -> Result<(), H
 pub fn verify_proof(gd: &GlobalData, vp: &VerifierKey, π: &Proof) -> Result<(), HintsError> {
     // --- Fiat-Shamir: Recompute challenge r ---
     let r_expected = compute_challenge_r(
-        &gd.cache.lockstitch,
+        &gd.lockstitch,
         vp, // VerifierKey implements FiatShamirTranscriptData
         &π.agg_pk,
         &π.agg_weight,

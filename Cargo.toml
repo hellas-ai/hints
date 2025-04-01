@@ -44,3 +44,7 @@ once_cell = "1.21.0"
 default = [ "parallel" , "asm" ]
 asm = [ "ark-ff/asm" ]
 parallel = [ "ark-std/parallel", "ark-ff/parallel",  "ark-ec/parallel", "dep:rayon" ]
+
+[[bench]]
+name = "criterion"
+harness = false

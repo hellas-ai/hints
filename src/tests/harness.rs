@@ -9,18 +9,17 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::Once;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::snark::{
-    finish_setup, hintgen, AggregationKey, GlobalData, Hint, SetupResult, VerifierKey, F, G1, G2,
-    KZG,
+use crate::snark::{F, KZG};
+use crate::{
+    Aggregator, GlobalData, Hint, HintsError, PartialSignature, PublicKey, SecretKey, Signature,
+    Verifier,
 };
-use crate::{HintsError, PartialSignature, PublicKey, SecretKey, Signature};
 
 use ark_ff::PrimeField;
-use ark_ff::{Field, One, UniformRand, Zero};
+use ark_ff::Zero;
 use ark_std::{
     ops::*,
     rand::{rngs::StdRng, Rng, SeedableRng},
@@ -43,15 +42,18 @@ pub fn seeded_rng() -> StdRng {
 }
 
 /// Global cache for KZG and GlobalData instances, keyed by domain_max
-static GLOBAL_DATA_CACHE: Lazy<Mutex<HashMap<usize, GlobalData>>> = Lazy::new(|| {
+static GLOBAL_DATA_CACHE: Lazy<Mutex<HashMap<usize, Arc<GlobalData>>>> = Lazy::new(|| {
     let mut cache = HashMap::new();
     let mut rng = seeded_rng();
 
     // Pre-populate cache with common domain sizes (powers of 2)
     for power in 1..=MAX_DOMAIN_POWER {
         let domain_max = 1 << power;
-        if let Ok(kzg) = KZG::setup_insecure(domain_max, &mut rng) {
-            cache.insert(domain_max, GlobalData::from_params(domain_max, kzg));
+        if let Ok(kzg) = KZG::setup(domain_max, &mut rng) {
+            cache.insert(
+                domain_max,
+                GlobalData::from_params(kzg, domain_max).expect("Failed to create GlobalData"),
+            );
         }
     }
 
@@ -63,7 +65,7 @@ static KEY_CACHE: Lazy<Mutex<HashMap<(usize, usize), (SecretKey, PublicKey, Hint
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Gets a cached GlobalData instance or creates a new one
-pub fn get_global_data(domain_max: usize) -> Result<GlobalData, HintsError> {
+pub fn get_global_data(domain_max: usize) -> Result<Arc<GlobalData>, HintsError> {
     if !domain_max.is_power_of_two() || domain_max == 0 {
         return Err(HintsError::InvalidInput(
             "domain_max must be a power of 2 and > 0".to_string(),
@@ -76,8 +78,8 @@ pub fn get_global_data(domain_max: usize) -> Result<GlobalData, HintsError> {
         Ok(gd.clone())
     } else {
         let mut rng = seeded_rng();
-        let kzg = KZG::setup_insecure(domain_max, &mut rng)?;
-        let gd = GlobalData::from_params(domain_max, kzg);
+        let kzg = KZG::setup(domain_max, &mut rng)?;
+        let gd = GlobalData::from_params(kzg, domain_max).expect("Failed to make new global data");
         cache.insert(domain_max, gd.clone());
         Ok(gd)
     }
@@ -98,7 +100,7 @@ fn get_or_create_participant(
         let mut rng = seeded_rng();
         let secret_key = SecretKey::random(&mut rng);
         let public_key = secret_key.public(global_data);
-        let hint = hintgen(global_data, &secret_key, domain_max, participant_idx)?;
+        let hint = global_data.generate_hint(&secret_key, domain_max, participant_idx)?;
 
         let data = (secret_key, public_key, hint);
         cache.insert(key, data.clone());
@@ -192,9 +194,7 @@ impl WeightStrategy {
 /// Wrapper around setup result for easier testing
 pub struct TestEnvironment {
     /// GlobalData instance
-    pub global_data: GlobalData,
-    /// Domain size (must be power of 2)
-    pub domain_max: usize,
+    pub global_data: Arc<GlobalData>,
     /// Number of participants (domain_max - 1)
     pub n_participants: usize,
     /// Secret keys for all participants
@@ -206,9 +206,9 @@ pub struct TestEnvironment {
     /// Weights for all participants
     pub weights: Vec<F>,
     /// Aggregation key (after setup)
-    pub aggregation_key: Option<AggregationKey>,
+    pub aggregator: Option<Aggregator>,
     /// Verifier key (after setup)
-    pub verifier_key: Option<VerifierKey>,
+    pub verifier: Option<Verifier>,
     /// Party errors from setup
     pub party_errors: Vec<(usize, crate::PartyError)>,
 }
@@ -240,30 +240,27 @@ impl TestEnvironment {
 
         Ok(Self {
             global_data,
-            domain_max,
             n_participants,
             secret_keys,
             public_keys,
             hints,
             weights,
-            aggregation_key: None,
-            verifier_key: None,
+            aggregator: None,
+            verifier: None,
             party_errors: Vec::new(),
         })
     }
 
     /// Complete setup to get aggregation and verifier keys
     pub fn complete_setup(&mut self) -> Result<(), HintsError> {
-        let result = finish_setup(
-            &self.global_data,
-            self.domain_max,
+        let result = self.global_data.setup_universe(
             self.public_keys.clone(),
             &self.hints,
             self.weights.clone(),
         )?;
 
-        self.aggregation_key = Some(result.agg_key);
-        self.verifier_key = Some(result.vk);
+        self.aggregator = Some(result.aggregator());
+        self.verifier = Some(result.verifier());
         self.party_errors = result.party_errors;
 
         Ok(())
@@ -297,7 +294,7 @@ impl TestEnvironment {
             .iter()
             .filter_map(|&i| {
                 if i < self.secret_keys.len() {
-                    Some((i, self.secret_keys[i].sign(message)))
+                    Some((i, crate::sign(&self.secret_keys[i], message)))
                 } else {
                     None
                 }
@@ -312,28 +309,22 @@ impl TestEnvironment {
         partials: &[(usize, PartialSignature)],
         message: &[u8],
     ) -> Result<Signature, HintsError> {
-        let agg_key = self
-            .aggregation_key
+        let agg = self
+            .aggregator
             .as_ref()
             .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
 
-        agg_key.aggregate(
-            &self.global_data,
-            threshold,
-            partials,
-            self.weights.clone(),
-            message,
-        )
+        crate::sign_aggregate(&agg, threshold, partials, message)
     }
 
     /// Verify a signature
-    pub fn verify(&self, signature: &Signature, message: &[u8]) -> Result<bool, HintsError> {
-        let vk = self
-            .verifier_key
+    pub fn verify(&self, signature: &Signature, message: &[u8]) -> Result<(), HintsError> {
+        let verif = self
+            .verifier
             .as_ref()
             .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
 
-        signature.verify(&self.global_data, vk, message)
+        crate::verify_aggregate(&verif, signature, message)
     }
 }
 
@@ -468,8 +459,7 @@ impl TestCaseBuilder {
             (Ok(signature), ExpectedOutcome::Success) => {
                 // Expect verification to succeed
                 match env.verify(&signature, &self.message) {
-                    Ok(true) => Ok(()),
-                    Ok(false) => Err("Signature verification returned false".to_string()),
+                    Ok(()) => Ok(()),
                     Err(e) => Err(format!("Verification failed: {:?}", e)),
                 }
             }
@@ -479,8 +469,8 @@ impl TestCaseBuilder {
             (Ok(signature), ExpectedOutcome::VerificationFailed) => {
                 // Expect verification to fail
                 match env.verify(&signature, &self.message) {
-                    Ok(false) | Err(_) => Ok(()),
-                    Ok(true) => Err("Expected verification to fail but it succeeded".to_string()),
+                    Err(_) => Ok(()),
+                    Ok(()) => Err("Expected verification to fail but it succeeded".to_string()),
                 }
             }
             (Err(HintsError::ThresholdNotMet), ExpectedOutcome::ThresholdNotMet) => {

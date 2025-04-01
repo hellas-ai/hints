@@ -37,7 +37,8 @@ Here's a simple example of how to use hinTS:
 
 ```rust
 use ark_std::{UniformRand, rand::Rng};
-use hints::{*, snark::{finish_setup, F, Hint, KZG, GlobalData, SetupResult}};
+use hints::*;
+use hints::snark::F;
 
 fn sample_weights(n: usize, rng: &mut impl Rng) -> Vec<F> {
     (0..n).map(|_| F::from(u64::rand(rng))).collect()
@@ -47,7 +48,7 @@ fn sample_weights(n: usize, rng: &mut impl Rng) -> Vec<F> {
 let mut rng = ark_std::test_rng();
 let domain = 4; // Maximum number of signers
 let n = 3;
-let gd = GlobalData::from_params(domain, KZG::setup_insecure(domain, &mut rng).expect("Setup failed"));
+let gd = GlobalData::new(domain, &mut rng).expect("Setup failed");
 
 // Generate keys for each participant
 let sk: Vec<SecretKey> = (0..n).map(|_| SecretKey::random(&mut rng)).collect();
@@ -56,12 +57,12 @@ let pks: Vec<PublicKey> = sk.iter().map(|sk| sk.public(&gd)).collect();
 // Generate hints for each participant
 let hints: Vec<Hint> = sk.iter()
     .enumerate()
-    .map(|(i, sk)| snark::hintgen(&gd, sk, domain, i).expect("Failed to generate hints"))
+    .map(|(i, sk)| gd.generate_hint(sk, domain, i).expect("Failed to generate hints"))
     .collect();
 
 // Setup with weights
 let weights = sample_weights(n, &mut rng);
-let SetupResult { agg_key, vk, party_errors } = finish_setup(&gd, domain, pks, &hints, weights.clone())
+let universe = gd.setup_universe(pks, &hints, weights)
     .expect("Failed to finish setup");
 
 // Sign a message with each signer
@@ -71,11 +72,11 @@ let partials: Vec<(usize, PartialSignature)> = sk.iter()
     .collect();
 
 // Aggregate signatures with a threshold of 1
-let sig = agg_key.aggregate(&gd, F::from(1), &partials, weights, b"hello").unwrap();
+let sig = universe.aggregator().sign_aggregate(F::from(1), &partials, b"hello").unwrap();
 
 // Verify the aggregated signature
-let result = sig.verify(&gd, &vk, b"hello").unwrap();
-assert!(result);
+let result = universe.verifier().verify_aggregate(&sig, b"hello");
+assert!(result.is_ok());
 ```
 
 ## Technical Details
@@ -95,3 +96,14 @@ Performance metrics on a standard machine:
 - Signing: ~1ms per signature (constant time)
 - Verification: ~17.5ms (constant time)
 - Aggregation: <0.5s for 1000 signers
+
+## Benchmarks
+
+The library includes a comprehensive benchmarking suite powered by Criterion. The benchmarks cover all major operations including:
+
+- Setup operations (KZG, Ethereum trusted setup, insecure setup)
+- Key generation and signature operations
+- SNARK operations (hint generation, setup, proving, verification)
+- Aggregation operations
+- KZG polynomial operations
+- Internal cryptographic operations

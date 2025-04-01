@@ -414,8 +414,8 @@ fn execute_wrong_message_test(config: &TestConfig) -> Result<(), String> {
 
     // Verify with modified message - should fail
     match env.verify(&signature, &modified_msg) {
-        Ok(false) | Err(_) => Ok(()), // Expected failure
-        Ok(true) => Err("Signature verified with wrong message!".to_string()),
+        Err(_) => Ok(()), // Expected failure
+        Ok(()) => Err("Signature verified with wrong message!".to_string()),
     }
 }
 
@@ -443,7 +443,7 @@ fn execute_tampered_signature_test(config: &TestConfig) -> Result<(), String> {
 
     // Verify the original signature works
     match env.verify(&signature, msg) {
-        Ok(true) => {}
+        Ok(()) => {}
         _ => return Err("Original signature failed to verify".to_string()),
     }
 
@@ -452,8 +452,8 @@ fn execute_tampered_signature_test(config: &TestConfig) -> Result<(), String> {
 
     // Verify with tampered signature - should fail
     match env.verify(&signature, msg) {
-        Ok(false) | Err(_) => Ok(()), // Expected failure
-        Ok(true) => Err("Tampered signature verified!".to_string()),
+        Err(_) => Ok(()), // Expected failure
+        Ok(()) => Err("Tampered signature verified!".to_string()),
     }
 }
 
@@ -463,7 +463,7 @@ fn execute_invalid_domain_test() -> Result<(), String> {
     let domain_max = 3; // Not a power of 2
 
     // Attempt to create GlobalData with invalid domain
-    let kzg_result = crate::KZG::setup_insecure(domain_max, &mut rng);
+    let kzg_result = crate::KZG::setup(domain_max, &mut rng);
 
     if kzg_result.is_ok() {
         return Err("KZG setup with invalid domain should have failed".to_string());

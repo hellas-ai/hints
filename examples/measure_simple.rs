@@ -46,7 +46,7 @@ pub fn main() {
     let rng = &mut ark_std::test_rng();
 
     let setup = start_timer!(|| "KZG Setup");
-    let gd = GlobalData::from_params(n, KZG::setup_insecure(n, rng).expect("Setup failed"));
+    let gd = GlobalData::new(n, rng).expect("Setup failed");
     end_timer!(setup);
 
     // -------------- sample universe specific values ---------------
@@ -63,35 +63,27 @@ pub fn main() {
 
     let parallel_work = start_timer!(|| "Hint generation");
 
-    #[cfg(not(feature = "parallel"))]
-    let hints: Vec<Hint> = sk
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| hintgen(&gd, sk, n, i).expect("Failed to generate hints"))
-        .collect();
-
-    #[cfg(feature = "parallel")]
     let hints: Vec<Hint> = sk
         .par_iter()
         .enumerate()
-        .map(|(i, sk)| hintgen(&gd, sk, n, i).expect("Failed to generate hints"))
+        .map(|(i, sk)| generate_hint(&gd, &sk, n, i).expect("Failed to generate hints"))
         .collect();
 
     end_timer!(parallel_work);
 
     let setup = start_timer!(|| "Setup");
-    let SetupResult {
-        agg_key,
-        vk,
-        party_errors,
-    } = finish_setup(&gd, n, pks, &hints, weights.clone()).expect("Failed to finish setup");
+    let univ_setup =
+        setup_universe(&gd, pks, &hints, weights.clone()).expect("Failed to finish setup");
+    let agg = univ_setup.aggregator();
+    let verif = univ_setup.verifier();
+
     end_timer!(setup);
 
     assert_eq!(
-        party_errors.len(),
+        univ_setup.party_errors.len(),
         0,
         "Hint generation was not consistent with the finished setup: {:?}",
-        party_errors
+        univ_setup.party_errors
     );
 
     // -------------- sample proof specific values ---------------
@@ -99,28 +91,28 @@ pub fn main() {
     let bitmap = sample_bitmap(n - 1, 0.9);
 
     let proving = start_timer!(|| "SNARK proof generation");
-    let proof = black_box(prove(&gd, &agg_key, weights.clone(), bitmap).unwrap());
+    let proof = black_box(prove(&agg.global, &agg.agg_key, &agg.agg_key.weights, &bitmap).unwrap());
     end_timer!(proving);
 
     let verification = start_timer!(|| "SNARK proof verification");
-    verify_proof(&gd, &vk, &proof).expect("Proof is invalid");
+    verify_proof(&verif.global, &verif.vk, &proof).expect("Proof is invalid");
     end_timer!(verification);
 
     let signing = start_timer!(|| "Signature generation");
     let partials: Vec<(usize, PartialSignature)> = sk
         .iter()
         .enumerate()
-        .map(|(i, sk)| (i, sign(sk, b"hello")))
+        .map(|(i, sk)| (i, sign(&sk, b"hello")))
         .collect();
     end_timer!(signing);
 
     let aggregation = start_timer!(|| "Signature aggregation");
-    let sig = sign_aggregate(&gd, &agg_key, F::one(), &partials, weights, b"hello").unwrap();
+    let sig = sign_aggregate(&agg, F::one(), &partials, b"hello").unwrap();
     end_timer!(aggregation);
 
     let verification = start_timer!(|| "Signature verification");
     assert!(
-        verify_aggregate(&gd, &vk, &sig, b"hello").unwrap(),
+        verify_aggregate(&verif, &sig, b"hello").is_ok(),
         "Signature is invalid"
     );
     end_timer!(verification);

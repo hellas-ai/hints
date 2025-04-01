@@ -4,29 +4,13 @@ use ark_serialize::{CanonicalSerialize, Compress, SerializationError, Validate};
 use hex::FromHexError;
 use serde::Deserialize;
 
-const TRUSTED_SETUP_JSON: &str = include_str!("data/trusted_setup_4096.json");
+const ETHSETUP_JSON: &str = include_str!("data/trusted_setup_64.json");
 
 /// JSON representation of the Ethereum trusted setup.
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct JsonTrustedSetup {
-    /// G1 Monomial represents a list of uncompressed
-    /// hex encoded group elements in the G1 group on the bls12-381 curve.
-    ///
-    /// Ethereum has multiple trusted setups, however the one being
-    /// used currently contains 4096 G1 elements.
     pub g1_monomial: Vec<String>,
-    /// G1 Lagrange represents a list of uncompressed
-    /// hex encoded group elements in the G1 group on the bls12-381 curve.
-    ///
-    /// These are related to `G1 Monomial` in that they are what one
-    /// would get if we did an inverse FFT on the `G1 monomial` elements.
-    ///
-    /// The length of this vector is equal to the length of G1_Monomial.
     pub g1_lagrange: Vec<String>,
-    /// G2 Monomial represents a list of uncompressed hex encoded
-    /// group elements in the G2 group on the bls12-381 curve.
-    ///
-    /// The length of this vector is 65.
     pub g2_monomial: Vec<String>,
 }
 
@@ -76,7 +60,7 @@ impl From<FromHexError> for TrustedSetupError {
 impl JsonTrustedSetup {
     /// Parse a Json string in the format specified by the ethereum trusted setup.
     ///
-    /// The file that is being used on mainnet is located here: https://github.com/ethereum/consensus-specs/blob/389b2ddfb954731da7ccf4c0ef89fab2d4575b99/presets/mainnet/trusted_setups/trusted_setup_4096.json
+    /// The file that is being used on mainnet is located here: <https://github.com/ethereum/consensus-specs/blob/389b2ddfb954731da7ccf4c0ef89fab2d4575b99/presets/mainnet/trusted_setups/trusted_setup_4096.json>
     ///
     // The format that the file follows that this function also accepts, looks like the following:
     /*
@@ -114,7 +98,7 @@ impl JsonTrustedSetup {
 
     /// Loads the official trusted setup file being used on mainnet from the embedded data folder.
     fn from_embed() -> JsonTrustedSetup {
-        Self::from_json_unchecked(TRUSTED_SETUP_JSON)
+        Self::from_json_unchecked(ETHSETUP_JSON)
     }
 
     /// Deserialize the JSON into a `TrustedSetup` struct.

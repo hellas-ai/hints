@@ -1,6 +1,11 @@
 //! Polynomial utilities
 
-use ark_ec::{hashing::HashToCurve, pairing::Pairing, CurveGroup};
+use ark_crypto_primitives::crh::sha256::Sha256;
+use ark_ec::hashing::curve_maps::wb::WBMap;
+use ark_ec::{
+    bls12::Bls12Config, hashing::map_to_curve_hasher::MapToCurveBasedHasher, hashing::HashToCurve,
+    pairing::Pairing,
+};
 use ark_ff::{Field /* FftField */};
 use ark_poly::{
     univariate::DensePolynomial, EvaluationDomain, Evaluations, Polynomial, Radix2EvaluationDomain,
@@ -72,11 +77,7 @@ pub fn poly_eval_mult_c(f: &DensePolynomial<F>, c: &F) -> DensePolynomial<F> {
     new_poly
 }
 
-pub fn compute_poly(
-    v: &[F],
-    aug: &F,
-    domain_max: usize,
-) -> Result<DensePolynomial<F>, HintsError> {
+pub fn compute_poly(v: &[F], aug: &F, domain_max: usize) -> Result<DensePolynomial<F>, HintsError> {
     if v.len() != domain_max - 1 {
         return Err(HintsError::InvalidInput(format!(
             "compute_poly: Input vector length {} does not match n-1 ({})",
@@ -128,7 +129,12 @@ pub fn compute_psw_poly(
     Ok(eval_form.interpolate())
 }
 
-pub fn hash_to_g2<H: HashToCurve<G>, G: CurveGroup>(msg: &[u8]) -> G::Affine {
+type H = MapToCurveBasedHasher<
+    crate::G2Projective,
+    ark_ff::field_hashers::DefaultFieldHasher<Sha256>,
+    WBMap<<ark_bls12_381::Config as Bls12Config>::G2Config>,
+>;
+pub fn hash_to_g2(msg: &[u8]) -> crate::G2 {
     let hasher = H::new(b"hints BLS12-381 signature").unwrap();
     hasher.hash(msg).unwrap()
 }

@@ -38,6 +38,13 @@ pub struct UniversalParams<E: Pairing> {
     pub powers_of_h: Vec<E::G2Affine>,
 }
 
+impl<E: Pairing> UniversalParams<E> {
+    pub fn truncate(&mut self, new_degree: usize) {
+       self.powers_of_g.truncate(new_degree + 1);
+       self.powers_of_h.truncate(new_degree + 1);
+    }
+}
+
 /// Errors from KZG10 commitments
 #[derive(Debug)]
 pub enum Error {
@@ -62,10 +69,8 @@ where
     for<'a, 'b> &'a P: Div<&'b P, Output = P>,
     for<'a, 'b> &'a P: Sub<&'b P, Output = P>,
 {
-    /// Setup: Generate the Common Reference String (CRS) for a maximum degree.
-    ///
-    /// Uses an insecure method that does not require a trusted setup.
-    pub fn setup_insecure<R: RngCore>(
+    /// Setup: Generate a random Common Reference String (CRS) for a maximum degree.
+    pub fn setup<R: RngCore>(
         max_degree: usize,
         rng: &mut R,
     ) -> Result<UniversalParams<E>, Error> {
