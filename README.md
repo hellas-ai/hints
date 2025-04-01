@@ -57,25 +57,25 @@ let pks: Vec<PublicKey> = sk.iter().map(|sk| sk.public(&gd)).collect();
 // Generate hints for each participant
 let hints: Vec<Hint> = sk.iter()
     .enumerate()
-    .map(|(i, sk)| gd.generate_hint(sk, domain, i).expect("Failed to generate hints"))
+    .map(|(i, sk)| generate_hint(&gd, sk, domain, i).expect("Failed to generate hints"))
     .collect();
 
 // Setup with weights
 let weights = sample_weights(n, &mut rng);
-let universe = gd.setup_universe(pks, &hints, weights)
+let universe = setup_universe(&gd, pks, &hints, weights)
     .expect("Failed to finish setup");
 
 // Sign a message with each signer
 let partials: Vec<(usize, PartialSignature)> = sk.iter()
     .enumerate()
-    .map(|(i, sk)| (i, sk.sign(b"hello")))
+    .map(|(i, sk)| (i, sign(sk, b"hello")))
     .collect();
 
 // Aggregate signatures with a threshold of 1
-let sig = universe.aggregator().sign_aggregate(F::from(1), &partials, b"hello").unwrap();
+let sig = sign_aggregate(&universe.aggregator(), F::from(1), &partials, b"hello").unwrap();
 
 // Verify the aggregated signature
-let result = universe.verifier().verify_aggregate(&sig, b"hello");
+let result = verify_aggregate(&universe.verifier(), &sig, b"hello");
 assert!(result.is_ok());
 ```
 

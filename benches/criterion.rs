@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use hints::snark::*;
 use hints::*;
 
@@ -51,13 +51,13 @@ fn setup_benchmarks(c: &mut Criterion) {
             size,
             |b, &size| {
                 let rng = &mut ark_std::test_rng();
-                b.iter(|| black_box(GlobalData::new(size, rng).expect("Insecure setup failed")));
+                b.iter(|| GlobalData::new(size, rng).expect("Insecure setup failed"));
             },
         );
     }
 
     group.bench_function("setup_eth", |b| {
-        b.iter(|| black_box(setup_eth(64).expect("Ethereum setup failed")));
+        b.iter(|| setup_eth(64).expect("Ethereum setup failed"));
     });
 
     group.finish();
@@ -73,22 +73,22 @@ fn key_signature_benchmarks(c: &mut Criterion) {
     let gd = GlobalData::from_params(KZG::setup(n, rng).expect("Setup failed"), n)
         .expect("Setup failed");
 
-    group.bench_function("keygen", |b| {
-        b.iter(|| black_box(generate_keypair(&gd, rng)));
+    group.bench_function("generate_keypair", |b| {
+        b.iter(|| generate_keypair(&gd, rng));
     });
 
     let (sk, _) = generate_keypair(&gd, rng);
     let message = b"benchmark message";
 
     group.bench_function("sign", |b| {
-        b.iter(|| black_box(sign(&sk, message)));
+        b.iter(|| sign(&sk, message));
     });
 
     let pk = sk.public(&gd);
     let sig = sign(&sk, message);
 
-    group.bench_function("partial_verify", |b| {
-        b.iter(|| black_box(verify_partial(&gd, &pk, message, &sig)));
+    group.bench_function("verify_partial", |b| {
+        b.iter(|| verify_partial(&gd, &pk, message, &sig));
     });
 
     group.finish();
@@ -135,10 +135,8 @@ fn snark_benchmarks(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("finish_setup", n), &n, |b, _| {
             b.iter(|| {
-                black_box(
-                    setup_universe(&gd, pks.clone(), &hints, weights.clone())
-                        .expect("Failed to finish setup"),
-                )
+                setup_universe(&gd, pks.clone(), &hints, weights.clone())
+                    .expect("Failed to finish setup")
             });
         });
 
@@ -147,9 +145,7 @@ fn snark_benchmarks(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("prove", n), &n, |b, &_n| {
             b.iter(|| {
-                black_box(
-                    prove(&gd, &univ.agg_key, &weights, &bitmap).expect("Failed to generate proof"),
-                )
+                prove(&gd, &univ.agg_key, &weights, &bitmap).expect("Failed to generate proof")
             });
         });
 
@@ -159,7 +155,7 @@ fn snark_benchmarks(c: &mut Criterion) {
             // these are unparameterized but need the setup done, just do them once
             group.bench_function("verify_proof", |b| {
                 b.iter(|| {
-                    black_box(verify_proof(&gd, &univ.vk, &proof).expect("Proof is invalid"))
+                    verify_proof(&gd, &univ.vk, &proof).expect("Proof is invalid")
                 });
             });
 
@@ -227,10 +223,8 @@ fn aggregation_benchmarks(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("sign_aggregate", n), &n, |b, &_n| {
             b.iter(|| {
-                black_box(
-                    sign_aggregate(&agg, F::one(), &partials, message)
-                        .expect("Failed to aggregate signatures"),
-                )
+                sign_aggregate(&agg, F::one(), &partials, message)
+                    .expect("Failed to aggregate signatures")
             });
         });
 
@@ -239,7 +233,7 @@ fn aggregation_benchmarks(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("verify_aggregate", n), &n, |b, &_n| {
             b.iter(|| {
-                black_box(verify_aggregate(&verif, &sig, message).expect("Signature is invalid"))
+                verify_aggregate(&verif, &sig, message).expect("Signature is invalid")
             });
         });
     }
@@ -261,11 +255,11 @@ fn kzg_operations_benchmarks(c: &mut Criterion) {
         let poly = UniPoly381::from_coefficients_slice(&coeffs);
 
         group.bench_with_input(BenchmarkId::new("commit_g1", n), &n, |b, _| {
-            b.iter(|| black_box(KZG::commit_g1(&params, &poly).expect("Failed to commit")));
+            b.iter(|| KZG::commit_g1(&params, &poly).expect("Failed to commit"));
         });
 
         group.bench_with_input(BenchmarkId::new("commit_g2", n), &n, |b, _| {
-            b.iter(|| black_box(KZG::commit_g2(&params, &poly).expect("Failed to commit")));
+            b.iter(|| KZG::commit_g2(&params, &poly).expect("Failed to commit"));
         });
 
         // Random evaluation point
@@ -273,10 +267,8 @@ fn kzg_operations_benchmarks(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("compute_opening_proof", n), &n, |b, _| {
             b.iter(|| {
-                black_box(
-                    KZG::compute_opening_proof(&params, &poly, &point)
-                        .expect("Failed to compute opening proof"),
-                )
+                KZG::compute_opening_proof(&params, &poly, &point)
+                    .expect("Failed to compute opening proof")
             });
         });
     }

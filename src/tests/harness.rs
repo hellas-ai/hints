@@ -33,8 +33,8 @@ use once_cell::sync::Lazy;
 /// Test seed for deterministic RNG
 const TEST_SEED: [u8; 32] = [42u8; 32];
 
-/// The maximum domain power we expect to use (2^10 = 1024)
-const MAX_DOMAIN_POWER: u32 = 10;
+/// The maximum domain power we expect to use (2^5 = 32)
+const MAX_DOMAIN_POWER: u32 = 5;
 
 /// Creates a deterministic RNG for tests
 pub fn seeded_rng() -> StdRng {
