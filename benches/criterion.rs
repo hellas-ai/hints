@@ -67,10 +67,6 @@ fn setup_benchmarks(c: &mut Criterion) {
         });
     }
 
-    group.bench_function("setup_eth", |b| {
-        b.iter(|| setup_eth(64).expect("Ethereum setup failed"));
-    });
-
     group.finish();
 }
 
@@ -110,9 +106,9 @@ fn snark_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("snark");
 
     let rng = &mut ark_std::test_rng();
-    let biggest = KZG::setup(128, rng).expect("Setup failed");
+    let biggest = KZG::setup(256, rng).expect("Setup failed");
 
-    for size in [16, 32, 64, 128].iter() {
+    for size in [16, 32, 64, 128, 256].iter() {
         let n = *size;
 
         let mut params = biggest.clone();
@@ -215,7 +211,7 @@ fn snark_benchmarks(c: &mut Criterion) {
 fn aggregation_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("aggregation");
 
-    for size in [16, 32, 64, 128].iter() {
+    for size in [16, 32, 64, 128, 256].iter() {
         let n = *size;
         let rng = &mut ark_std::test_rng();
 

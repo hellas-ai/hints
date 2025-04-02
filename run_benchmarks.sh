@@ -1,6 +1,9 @@
 #!/bin/bash
 # Script to run the benchmarks and generate reports
 
+cargo run --release --example save_committee 1024 benches/big_committee_bn254.json
+cargo run --release --example transcode_committee benches/big_committee_bn254.json benches/big_committee_bn254.bincode
+
 # Run with parallel feature (default)
 echo "Running benchmarks with parallel feature enabled..."
 cargo bench --features="parallel,asm"

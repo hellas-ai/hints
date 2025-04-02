@@ -24,8 +24,6 @@ pub use verifier::*;
 // ark_blst includes a GPU-"accelerated" backend for msm but it's actually
 // substantially slower than the CPU in benchmarks (measured on an M2 Pro)
 
-//pub type Curve = ark_blst::Bls12;
-
 pub type Curve = ark_bls12_381::Bls12_381;
 
 pub type KZG = KZG10<Curve, UniPoly381>;
