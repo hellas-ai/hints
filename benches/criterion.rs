@@ -70,8 +70,8 @@ fn key_signature_benchmarks(c: &mut Criterion) {
 
     // Create global data for benchmarks
     let n = 128;
-    let gd = GlobalData::from_params(KZG::setup(n, rng).expect("Setup failed"), n)
-        .expect("Setup failed");
+    let gd =
+        GlobalData::from_params(KZG::setup(n, rng).expect("Setup failed")).expect("Setup failed");
 
     group.bench_function("generate_keypair", |b| {
         b.iter(|| generate_keypair(&gd, rng));
@@ -108,7 +108,7 @@ fn snark_benchmarks(c: &mut Criterion) {
         params.truncate(n);
 
         // Setup
-        let gd = GlobalData::from_params(params, n).expect("Setup failed");
+        let gd = GlobalData::from_params(params).expect("Setup failed");
 
         // Keys and weights
         let sk: Vec<SecretKey> = sample_secret_keys(n - 1);
@@ -153,9 +153,7 @@ fn snark_benchmarks(c: &mut Criterion) {
         if n == 16 {
             // these are unparameterized but need the setup done, just do them once
             group.bench_function("verify_proof", |b| {
-                b.iter(|| {
-                    verify_proof(&gd, &univ.vk, &proof).expect("Proof is invalid")
-                });
+                b.iter(|| verify_proof(&gd, &univ.vk, &proof).expect("Proof is invalid"));
             });
 
             group.bench_function("compute_challenge_r", |b| {
@@ -187,7 +185,7 @@ fn aggregation_benchmarks(c: &mut Criterion) {
         let rng = &mut ark_std::test_rng();
 
         // Setup
-        let gd = GlobalData::from_params(KZG::setup(n, rng).expect("Setup failed"), n)
+        let gd = GlobalData::from_params(KZG::setup(n, rng).expect("Setup failed"))
             .expect("Setup failed");
 
         // Keys and weights
@@ -220,20 +218,22 @@ fn aggregation_benchmarks(c: &mut Criterion) {
         let agg = univ.aggregator();
         let verif = univ.verifier();
 
-        group.bench_with_input(BenchmarkId::new("sign_aggregate_unchecked", n), &n, |b, &_n| {
-            b.iter(|| {
-                sign_aggregate_unchecked(&agg, F::one(), &partials, message)
-                    .expect("Failed to aggregate signatures")
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("sign_aggregate_unchecked", n),
+            &n,
+            |b, &_n| {
+                b.iter(|| {
+                    sign_aggregate_unchecked(&agg, F::one(), &partials, message)
+                        .expect("Failed to aggregate signatures")
+                });
+            },
+        );
 
         let sig = sign_aggregate(&agg, F::one(), &partials, message)
             .expect("Failed to aggregate signatures");
 
         group.bench_with_input(BenchmarkId::new("verify_aggregate", n), &n, |b, &_n| {
-            b.iter(|| {
-                verify_aggregate(&verif, &sig, message).expect("Signature is invalid")
-            });
+            b.iter(|| verify_aggregate(&verif, &sig, message).expect("Signature is invalid"));
         });
     }
 
