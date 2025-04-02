@@ -14,10 +14,12 @@ use ark_poly::DenseUVPolynomial;
 use ark_std::{format, marker::PhantomData, ops::*, vec};
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, SerializationError};
-
 use ark_std::rand::RngCore;
+
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+use serde::{Deserialize, Serialize};
 
 use crate::HintsError;
 
@@ -40,13 +42,13 @@ pub struct UniversalParams<E: Pairing> {
 
 impl<E: Pairing> UniversalParams<E> {
     pub fn truncate(&mut self, new_degree: usize) {
-       self.powers_of_g.truncate(new_degree + 1);
-       self.powers_of_h.truncate(new_degree + 1);
+        self.powers_of_g.truncate(new_degree + 1);
+        self.powers_of_h.truncate(new_degree + 1);
     }
 }
 
 /// Errors from KZG10 commitments
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Error {
     /// The degree provided in setup was too small; degree 0 polynomials
     /// are not supported.
@@ -70,10 +72,7 @@ where
     for<'a, 'b> &'a P: Sub<&'b P, Output = P>,
 {
     /// Setup: Generate a random Common Reference String (CRS) for a maximum degree.
-    pub fn setup<R: RngCore>(
-        max_degree: usize,
-        rng: &mut R,
-    ) -> Result<UniversalParams<E>, Error> {
+    pub fn setup<R: RngCore>(max_degree: usize, rng: &mut R) -> Result<UniversalParams<E>, Error> {
         if max_degree < 1 {
             return Err(Error::DegreeIsZero);
         }

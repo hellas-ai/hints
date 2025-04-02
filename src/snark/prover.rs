@@ -35,7 +35,7 @@ pub struct Proof {
 /// Parameters used for aggregating proofs.
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct AggregationKey {
-    pub domain_max: usize,
+    pub degree_max: usize,
     pub pks: Vec<PublicKey>, //g^sk_i for each party i
     pub weights: Vec<F>,
     pub q1_coms: Vec<G1>,    //preprocessed contributions for pssk_q1
@@ -57,7 +57,7 @@ pub fn prove(
     bitmap: &[F],
 ) -> Result<Proof, HintsError> {
     // compute the nth root of unity
-    let n = gd.domain_max;
+    let n = ak.degree_max;
     let params = &gd.params;
 
     if weights.len() != n - 1 || bitmap.len() != n - 1 {

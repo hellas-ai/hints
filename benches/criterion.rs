@@ -129,8 +129,7 @@ fn snark_benchmarks(c: &mut Criterion) {
         group.throughput(Throughput::Elements(n as u64));
 
         group.bench_with_input(BenchmarkId::new("generate_hint", n), &n, |b, &n| {
-            let test_sk = sk[0];
-            b.iter(|| generate_hint(&gd, &test_sk, n, n - 1).expect("Failed to generate hint"));
+            b.iter(|| generate_hint(&gd, &sk[0], n, n - 1).expect("Failed to generate hint"));
         });
 
         group.bench_with_input(BenchmarkId::new("finish_setup", n), &n, |b, _| {
@@ -166,7 +165,7 @@ fn snark_benchmarks(c: &mut Criterion) {
                     let proto = protocol.clone();
                     snark::compute_challenge_r(
                         &proto,
-                        &*univ.vk,
+                        &univ.vk.0,
                         &proof.agg_pk,
                         &proof.agg_weight,
                         &proof.coms,
@@ -221,9 +220,9 @@ fn aggregation_benchmarks(c: &mut Criterion) {
         let agg = univ.aggregator();
         let verif = univ.verifier();
 
-        group.bench_with_input(BenchmarkId::new("sign_aggregate", n), &n, |b, &_n| {
+        group.bench_with_input(BenchmarkId::new("sign_aggregate_unchecked", n), &n, |b, &_n| {
             b.iter(|| {
-                sign_aggregate(&agg, F::one(), &partials, message)
+                sign_aggregate_unchecked(&agg, F::one(), &partials, message)
                     .expect("Failed to aggregate signatures")
             });
         });

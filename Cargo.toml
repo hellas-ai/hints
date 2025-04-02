@@ -17,8 +17,9 @@ debug-assertions = true
 
 [dependencies]
 lockstitch = "0.29"
-serde = { version = "1", features = [ "derive" ] }
+serde = { version = "1", features = [ "derive", "rc" ] }
 serde_json = "1"
+serde_with = "3.12"
 hex = "0.4"
 
 ark-std = { version = "0.5.0", features = ["print-trace"] }
@@ -28,7 +29,7 @@ ark-poly = { version = "0.5.0" }
 ark-poly-commit = { version = "0.5.0" }
 ark-crypto-primitives = { version = "0.5.0" }
 ark-bls12-381 = { version = "0.5.0" }
-ark-serialize = { version = "0.5.0" }
+ark-serialize = { version = "0.5.0", features = ["serde_with"] }
 rayon = { version = "1.10.0" , optional = true }
 #ark-blst = { version = "0.1.0" }
 
@@ -46,3 +47,11 @@ parallel = [ "ark-std/parallel", "ark-ff/parallel",  "ark-ec/parallel", "dep:ray
 [[bench]]
 name = "criterion"
 harness = false
+
+[[example]]
+name = "save_committee"
+path = "examples/save_committee.rs"
+
+[[example]]
+name = "measure_simple"
+path = "examples/measure_simple.rs"

@@ -68,11 +68,12 @@ pub fn setup_eth(max_degree: usize) -> Result<Arc<GlobalData>, HintsError> {
             "Maximum supported max_degree with setup_eth is 64 (ceremony limitation)".to_string(),
         ));
     }
-    let params = UniversalParams {
+    let mut params = UniversalParams {
         powers_of_g: ts.g1_points.to_vec(),
         powers_of_h: ts.g2_points.to_vec(),
     };
-    GlobalData::from_params(params, max_degree)
+    params.truncate(max_degree);
+    GlobalData::from_params(params)
 }
 
 /// Generate a BLS key pair.
@@ -103,18 +104,21 @@ pub fn verify_partial(
 }
 
 /// Aggregate partial signatures and generate the final signature with proof.
-pub fn sign_aggregate(
+fn sign_aggregate_inner(
     agg: &Aggregator,
     threshold: F,
     partial_sigs: &[(usize, PartialSignature)],
     msg: &[u8],
+    check_partials: bool,
 ) -> Result<Signature, HintsError> {
-    let n = agg.global.domain_max;
+    let n = agg.agg_key.degree_max;
     let mut bitmap = vec![F::zero(); n - 1];
-    let mut valid_sigs = Vec::new();
     let mut signer_indices = Vec::new();
 
     let mut weight_here = F::zero();
+
+    let mut agg_sig = G2Projective::zero();
+
     // Verify partial signatures and build bitmap
     for (i, partial_sig) in partial_sigs {
         if *i >= n {
@@ -125,31 +129,27 @@ pub fn sign_aggregate(
         } // Skip party if hint failed
 
         let pk = &agg.agg_key.pks[*i];
-        if verify_partial(&agg.global, pk, msg, partial_sig) {
-            bitmap[*i] = F::one();
-            valid_sigs.push(*partial_sig);
-            signer_indices.push(*i);
-            weight_here += agg.agg_key.weights[*i];
-        } else {
-            // Optional: Log or handle invalid partial signature
+        if check_partials && !verify_partial(&agg.global, pk, msg, partial_sig) {
+            continue;
         }
+        bitmap[*i] = F::one();
+        agg_sig += partial_sig.0;
+        signer_indices.push(*i);
+        weight_here += agg.agg_key.weights[*i];
     }
 
     if weight_here < threshold {
         return Err(HintsError::ThresholdNotMet);
     }
 
-    if valid_sigs.is_empty() {
+    if agg_sig.is_zero() {
         return Err(HintsError::InvalidInput(
             "No valid partial signatures provided".to_string(),
         ));
     }
 
-    let agg_sig_prime = valid_sigs
-        .iter()
-        .fold(G2::zero(), |sum, s| (sum + s.0).into_affine())
-        .mul_bigint(F::from(n as u64).inverse().unwrap().into_bigint())
-        .into_affine();
+    let agg_sig_prime =
+        (agg_sig.into_affine() * F::from(n as u64).inverse().unwrap()).into_affine();
 
     let proof = prove(&agg.global, &agg.agg_key, &agg.agg_key.weights, &bitmap)?;
 
@@ -159,6 +159,38 @@ pub fn sign_aggregate(
         threshold,
         proof,
     })
+}
+
+/// Aggregate partial signatures and generate validity proof.
+///
+/// Checks partial signature validity and filters out invalid partials.
+pub fn sign_aggregate(
+    agg: &Aggregator,
+    threshold: F,
+    partial_sigs: &[(usize, PartialSignature)],
+    msg: &[u8],
+) -> Result<Signature, HintsError> {
+    let sig = sign_aggregate_inner(agg, threshold, partial_sigs, msg, true)?;
+    debug_assert!({
+        let h_m = utils::hash_to_g2(msg);
+
+        Curve::pairing(sig.proof.agg_pk, h_m)
+            == Curve::pairing(agg.global.params.powers_of_g[0], sig.agg_sig_prime)
+    });
+
+    Ok(sig)
+}
+
+/// Aggregate partial signatures and generate validity proof.
+///
+/// Does not check partial signature validity. Use this when you are externally verifying the partials.
+pub fn sign_aggregate_unchecked(
+    agg: &Aggregator,
+    threshold: F,
+    partial_sigs: &[(usize, PartialSignature)],
+    msg: &[u8],
+) -> Result<Signature, HintsError> {
+    sign_aggregate_inner(agg, threshold, partial_sigs, msg, false)
 }
 
 /// Verify: Check the aggregated signature against the threshold and VK.

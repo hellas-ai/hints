@@ -11,7 +11,7 @@ use ark_std::rand::RngCore;
 use ark_std::{One, Zero};
 
 use crate::utils;
-use crate::{kzg::*, HintsError, PublicKey, GlobalData};
+use crate::{kzg::*, GlobalData, HintsError, PublicKey};
 
 mod hints;
 mod prover;
@@ -59,14 +59,23 @@ impl GlobalData {
     /// Create a new global data from a randomly generated KZG setup.
     pub fn new<R: RngCore>(domain_max: usize, rng: &mut R) -> Result<Arc<Self>, HintsError> {
         let params = KZG::setup(domain_max, rng)?;
-        Self::from_params(params, domain_max)
+        Self::from_params(params)
     }
 
     /// Create a new global data from the given parameters.
-    pub fn from_params(
+    pub fn from_params(params: UniversalParams<Curve>) -> Result<Arc<Self>, HintsError> {
+        Self::from_params_and_domain(params, LOCKSTITCH_DOMAIN.to_string())
+    }
+
+    /// Create a new global data from the given parameters.
+    ///
+    /// Uses `domain` for the lockstitch protocol.
+    pub fn from_params_and_domain(
         params: UniversalParams<Curve>,
-        domain_max: usize,
+        domain: String,
     ) -> Result<Arc<Self>, HintsError> {
+        let domain_max = params.powers_of_h.len() - 1;
+
         if domain_max == 0 || domain_max & (domain_max - 1) != 0 {
             return Err(HintsError::InvalidInput(
                 "n must be a power of 2".to_string(),
@@ -91,14 +100,14 @@ impl GlobalData {
             .map(|h| KZG10::commit_g2(&params, h).unwrap())
             .collect();
 
-        let lockstitch = lockstitch::Protocol::new(LOCKSTITCH_DOMAIN);
+        let lockstitch = lockstitch::Protocol::new(&domain);
 
         Ok(Arc::new(Self {
-            params,
-            domain_max,
-            lagrange_polynomials,
-            lagrange_coms_g1,
-            lagrange_coms_g2,
+            params: params,
+            domain,
+            lagrange_polynomials: lagrange_polynomials,
+            lagrange_coms_g1: lagrange_coms_g1,
+            lagrange_coms_g2: lagrange_coms_g2,
             lockstitch,
         }))
     }
@@ -196,7 +205,7 @@ pub fn compute_challenge_r(
 
 impl FiatShamirTranscriptData for VerifierKey {
     fn mix_fs_data(&self, transcript: &mut lockstitch::Protocol) -> Result<(), HintsError> {
-        mix_object(transcript, "domain_max", &self.domain_max)?;
+        mix_object(transcript, "degree_max", &self.degree_max)?;
         mix_object(transcript, "ln-1_com", &self.l_n_minus_1_of_x_com)?;
         mix_object(transcript, "w_com", &self.w_of_x_com)?;
         mix_object(transcript, "sk_com", &self.sk_of_x_com)?;
@@ -208,7 +217,7 @@ impl FiatShamirTranscriptData for VerifierKey {
 
 impl FiatShamirTranscriptData for AggregationKey {
     fn mix_fs_data(&self, transcript: &mut lockstitch::Protocol) -> Result<(), HintsError> {
-        mix_object(transcript, "domain_max", &self.domain_max)?;
+        mix_object(transcript, "degree_max", &self.degree_max)?;
         mix_object(transcript, "ln-1_com", &self.vk_l_n_minus_1_com)?;
         mix_object(transcript, "w_com", &self.vk_w_of_x_com)?;
         mix_object(transcript, "sk_com", &self.vk_sk_of_x_com)?;

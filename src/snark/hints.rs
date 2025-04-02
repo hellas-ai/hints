@@ -6,7 +6,8 @@ use ark_std::{ops::*, One, Zero};
 
 use crate::utils::{self};
 use crate::HintsError;
-use crate::{snark::*, PublicKey, SecretKey, UniverseSetup, Hint};
+use crate::{snark::*, Hint, PublicKey, SecretKey, UniverseSetup};
+use serde::{Deserialize, Serialize};
 
 pub(crate) fn preprocess_q1_contributions(q1_contributions: &[Vec<G1>]) -> Vec<G1> {
     let n = q1_contributions.len();
@@ -69,7 +70,7 @@ fn get_zero_poly_com_g2(params: &UniversalParams<Curve>) -> G2 {
 }
 
 /// Errors that can occur during hint verification.
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PartyError {
     /// Invalid hint structure.
     InvalidStructure(usize),
@@ -79,7 +80,12 @@ pub enum PartyError {
 
 impl GlobalData {
     /// Generate a hint for a party's secret key.
-    pub(crate) fn generate_hint(&self, sk: &SecretKey, n: usize, i: usize) -> Result<Hint, HintsError> {
+    pub(crate) fn generate_hint(
+        &self,
+        sk: &SecretKey,
+        n: usize,
+        i: usize,
+    ) -> Result<Hint, HintsError> {
         if n == 0 || n & (n - 1) != 0 {
             return Err(HintsError::InvalidInput(
                 "n must be a power of 2".to_string(),
@@ -145,6 +151,8 @@ impl GlobalData {
         hints: &[Hint],
         weights: Vec<F>,
     ) -> Result<UniverseSetup, HintsError> {
+        let degree_max = self.params.powers_of_g.len() - 1;
+
         if !(keys.len() == hints.len() && keys.len() == weights.len()) {
             return Err(HintsError::InvalidInput(
                 "Keys, hints, and weights must have the same length".to_string(),
@@ -153,16 +161,15 @@ impl GlobalData {
 
         // Pad with defaults if fewer participants than n? The proof system assumes size n.
         // Let's assume keys_hints_weights.len() == n for now. Need clarification.
-        if keys.len() + 1 != self.domain_max {
+        if keys.len() + 1 != degree_max {
             return Err(HintsError::InvalidInput(format!(
                 "Expected exactly n={} participants, got {}",
-                self.domain_max,
+                degree_max,
                 keys.len(),
             )));
         }
 
-        let hint_aug =
-            self.generate_hint(&SecretKey(F::zero()), self.domain_max, self.domain_max - 1)?;
+        let hint_aug = self.generate_hint(&SecretKey(F::zero()), degree_max, degree_max - 1)?;
         let pk_aug = PublicKey((self.params.powers_of_g[0] * F::zero()).into_affine());
         let params = &self.params;
 
@@ -174,7 +181,7 @@ impl GlobalData {
             .chain(std::iter::once((&pk_aug, &hint_aug)))
             .enumerate()
         {
-            if hint.com_q1_contributions.len() != self.domain_max {
+            if hint.com_q1_contributions.len() != degree_max {
                 failed_hint_indices.push(i);
                 party_errors.push((
                     i,
@@ -210,14 +217,14 @@ impl GlobalData {
 
         vk_com_sk_tau += hint_aug.com_sk_li_tau;
 
-        let w_of_x = utils::compute_poly(&weights, &F::zero(), self.domain_max)?;
+        let w_of_x = utils::compute_poly(&weights, &F::zero(), degree_max)?;
         let w_of_x_com = KZG::commit_g1(params, &w_of_x).unwrap();
-        let z_of_x = utils::compute_vanishing_poly(self.domain_max);
+        let z_of_x = utils::compute_vanishing_poly(degree_max);
         let x_monomial = utils::compute_x_monomial();
-        let l_n_minus_1_of_x = &self.lagrange_polynomials[self.domain_max - 1];
+        let l_n_minus_1_of_x = &self.lagrange_polynomials[degree_max - 1];
 
         let vp = VerifierKey {
-            domain_max: self.domain_max,
+            degree_max,
             g_0: params.powers_of_g[0],
             h_0: params.powers_of_h[0],
             h_1: params.powers_of_h[1],
@@ -258,7 +265,7 @@ impl GlobalData {
         // Let's pass the full list for now.
 
         let pp = AggregationKey {
-            domain_max: self.domain_max,
+            degree_max,
             weights,
             pks: keys,
             q1_coms,
@@ -272,8 +279,8 @@ impl GlobalData {
         };
 
         Ok(UniverseSetup {
-            agg_key: Arc::new(pp),
-            vk: Arc::new(vp),
+            agg_key: Arc::new(pp.into()),
+            vk: Arc::new(vp.into()),
             global: self.clone(),
             party_errors,
         })

@@ -11,7 +11,7 @@ use super::*;
 /// Parameters used for verifying proofs.
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct VerifierKey {
-    pub domain_max: usize, //size of the committee as a power of 2
+    pub degree_max: usize, //size of the committee as a power of 2
     pub g_0: G1,           //first element from the KZG SRS over G1
     pub h_0: G2,           //first element from the KZG SRS over G2
     pub h_1: G2,           //2nd element from the KZG SRS over G2
@@ -103,7 +103,7 @@ fn verify_openings(vp: &VerifierKey, π: &Proof, r_expected: &F) -> Result<(), H
 
     lhs_rhs_eq!(lhs, rhs, "merged proofs");
 
-    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max)
+    let domain = Radix2EvaluationDomain::<F>::new(vp.degree_max)
         .ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
     let r_div_ω: F = *r_expected / ω;
@@ -129,11 +129,11 @@ pub fn verify_proof(gd: &GlobalData, vp: &VerifierKey, π: &Proof) -> Result<(),
     lhs_rhs_eq!(r_expected, π.r, "proof.r == r_expected"); // Check if received r matches derived r
                                                            // --- End Fiat-Shamir ---
 
-    let domain = Radix2EvaluationDomain::<F>::new(vp.domain_max)
+    let domain = Radix2EvaluationDomain::<F>::new(vp.degree_max)
         .ok_or(HintsError::PolynomialDegreeTooLarge)?;
     let ω: F = domain.group_gen;
 
-    let n: u64 = vp.domain_max as u64;
+    let n: u64 = vp.degree_max as u64;
     let vanishing_of_r: F = r_expected.pow([n]) - F::from(1);
 
     // compute L_i(r) using the relation L_i(x) = Z_V(x) / ( Z_V'(x) (x - ω^i) )

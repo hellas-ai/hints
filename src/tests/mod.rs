@@ -2,7 +2,7 @@
 //! Uses a table-driven approach with a single test function to reduce boilerplate.
 
 use crate::HintsError;
-use ark_std::One;
+use ark_std::{One, UniformRand};
 use std::fmt;
 
 mod harness;
@@ -207,6 +207,28 @@ fn run_all_tests() {
             description: Some("Test that tampered signature fails verification"),
         },
         TestCase {
+            name: "tampered_partial_negates_threshold_fails",
+            config: TestConfig {
+                domain_power: 2,        // 2^2 = 4
+                signers: vec![0, 1, 2], // All participants
+                // Special handling in execute_test_case for signature tampering
+                ..Default::default()
+            },
+            expected: ExpectedOutcome::VerificationFailed,
+            description: Some("Test that tampered signature fails verification"),
+        },
+        TestCase {
+            name: "tampered_partial_maintains_threshold_success",
+            config: TestConfig {
+                domain_power: 2,        // 2^2 = 4
+                signers: vec![0, 1, 2], // All participants
+                // Special handling in execute_test_case for signature tampering
+                ..Default::default()
+            },
+            expected: ExpectedOutcome::Success,
+            description: Some("Test that tampered signature fails verification"),
+        },
+        TestCase {
             name: "binary_weight_distribution",
             config: TestConfig {
                 domain_power: 3, // 2^3 = 8
@@ -313,6 +335,12 @@ fn run_all_tests() {
         } else if test_case.name == "tampered_signature_fails" {
             // Special case for tampered signature test
             execute_tampered_signature_test(&test_case.config)
+        } else if test_case.name == "tampered_partial_negates_threshold_fails" {
+            // Special case for tampered partial test
+            execute_tampered_partial_fails_test(&test_case.config)
+        } else if test_case.name == "tampered_partial_maintains_threshold_success" {
+            // Special case for tampered partial test
+            execute_tampered_partial_succeeds_test(&test_case.config)
         } else if test_case.name == "invalid_domain_error_details" {
             // Special case for invalid domain test
             execute_invalid_domain_test()
@@ -457,6 +485,64 @@ fn execute_tampered_signature_test(config: &TestConfig) -> Result<(), String> {
     }
 }
 
+/// Special execution for tampered signature test
+fn execute_tampered_partial_fails_test(config: &TestConfig) -> Result<(), String> {
+    // Create environment
+    let mut env = TestEnvironment::new(config.domain_power, config.weight_strategy.clone())
+        .map_err(|e| format!("Failed to create environment: {:?}", e))?;
+
+    env.complete_setup()
+        .map_err(|e| format!("Setup failed: {:?}", e))?;
+
+    let msg = b"signature tampering test";
+
+    // Generate partial signatures
+    let mut partials = env.generate_partial_signatures(&config.signers, msg);
+
+    // invalidate two of the partials
+
+    partials[0].1 .0 = crate::G2::rand(&mut ark_std::test_rng());
+    partials[1].1 .0 = crate::G2::rand(&mut ark_std::test_rng());
+
+    // Calculate threshold
+    let threshold = env.sum_weights(&config.signers);
+
+    // Aggregate signature
+    let signature = env.aggregate(threshold, &partials, msg);
+
+    if !signature.is_err() {
+        return Err("Signature should have failed to generate".to_string());
+    }
+
+    // not checking validity should succeed
+    env.aggregate_unchecked(threshold, &partials, msg)
+        .map(|_| ())
+        .map_err(|e| format!("Uncheckced aggregation failed: {:?}", e))
+}
+
+/// Special execution for tampered signature test
+fn execute_tampered_partial_succeeds_test(config: &TestConfig) -> Result<(), String> {
+    // Create environment
+    let mut env = TestEnvironment::new(config.domain_power, config.weight_strategy.clone())
+        .map_err(|e| format!("Failed to create environment: {:?}", e))?;
+
+    env.complete_setup()
+        .map_err(|e| format!("Setup failed: {:?}", e))?;
+
+    let msg = b"signature tampering test";
+
+    // Generate partial signatures
+    let mut partials = env.generate_partial_signatures(&config.signers, msg);
+
+    // invalidate only one of the partials
+
+    partials[0].1 .0 = crate::G2::rand(&mut ark_std::test_rng());
+
+    // Aggregate signature
+    env.aggregate(2.into(), &partials, msg)
+        .map_err(|e| format!("Aggregation failed: {:?}", e))
+        .map(|_| ())
+}
 /// Special execution for invalid domain test
 fn execute_invalid_domain_test() -> Result<(), String> {
     let mut rng = seeded_rng();

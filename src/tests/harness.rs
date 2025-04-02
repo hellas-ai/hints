@@ -52,7 +52,7 @@ static GLOBAL_DATA_CACHE: Lazy<Mutex<HashMap<usize, Arc<GlobalData>>>> = Lazy::n
         if let Ok(kzg) = KZG::setup(domain_max, &mut rng) {
             cache.insert(
                 domain_max,
-                GlobalData::from_params(kzg, domain_max).expect("Failed to create GlobalData"),
+                GlobalData::from_params(kzg).expect("Failed to create GlobalData"),
             );
         }
     }
@@ -79,7 +79,7 @@ pub fn get_global_data(domain_max: usize) -> Result<Arc<GlobalData>, HintsError>
     } else {
         let mut rng = seeded_rng();
         let kzg = KZG::setup(domain_max, &mut rng)?;
-        let gd = GlobalData::from_params(kzg, domain_max).expect("Failed to make new global data");
+        let gd = GlobalData::from_params(kzg).expect("Failed to make new global data");
         cache.insert(domain_max, gd.clone());
         Ok(gd)
     }
@@ -315,6 +315,20 @@ impl TestEnvironment {
             .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
 
         crate::sign_aggregate(&agg, threshold, partials, message)
+    }
+
+    pub fn aggregate_unchecked(
+        &self,
+        threshold: F,
+        partials: &[(usize, PartialSignature)],
+        message: &[u8],
+    ) -> Result<Signature, HintsError> {
+        let agg = self
+            .aggregator
+            .as_ref()
+            .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
+
+        crate::sign_aggregate_unchecked(&agg, threshold, partials, message)
     }
 
     /// Verify a signature
