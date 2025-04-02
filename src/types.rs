@@ -43,11 +43,11 @@ impl<'de> Deserialize<'de> for GlobalData {
             pub params: UniversalParams<Curve>,
             /// Used for domain separation in lockstitch
             pub domain: String,
-            #[serde(with = "ark_serialize::serde::vec_compressed_checked")]
+            #[serde(with = "ark_serialize::vec_compressed_checked")]
             pub(crate) lagrange_polynomials: Vec<DensePolynomial<F>>,
-            #[serde(with = "ark_serialize::serde::vec_compressed_checked")]
+            #[serde(with = "ark_serialize::vec_compressed_checked")]
             pub(crate) lagrange_coms_g1: Vec<G1>,
-            #[serde(with = "ark_serialize::serde::vec_compressed_checked")]
+            #[serde(with = "ark_serialize::vec_compressed_checked")]
             pub(crate) lagrange_coms_g2: Vec<G2>,
         }
         let inner = GlobalData::deserialize(deserializer)?;

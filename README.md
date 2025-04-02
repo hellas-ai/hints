@@ -95,5 +95,5 @@ The security of hinTS is proven in the Algebraic Group Model and relies on the q
 Performance metrics on an Apple M2 Pro:
 - Signing: ~800us per signature (constant time)
 - Verification: ~11ms (constant time)
-- Universe Setup: ~400ms for 128 signers, ~2s for 1024 signers
+- Universe Setup: ~400ms for 128 signers, ~32s for 1024 signers
 - Aggregation: ~300ms for 128 signers, ~3s for 1024 signers

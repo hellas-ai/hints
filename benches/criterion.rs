@@ -5,8 +5,23 @@ use hints::*;
 use ark_poly::DenseUVPolynomial;
 use ark_std::*;
 
+use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+#[serde_with::serde_as]
+#[derive(Serialize, Deserialize)]
+struct Committee {
+    pub pks: Vec<PublicKey>,
+    #[serde_as(as = "Vec<ark_serialize::CompressedChecked<F>>")]
+    pub weights: Vec<F>,
+    pub hints: Vec<Hint>,
+    pub sks: Vec<SecretKey>,
+    pub setup: UniverseSetup,
+}
+
+const BIG_COMMITTEE: &str = include_str!("big_committee.json");
 
 // Helper function to sample random secret keys
 fn sample_secret_keys(num_parties: usize) -> Vec<SecretKey> {
@@ -46,14 +61,10 @@ fn setup_benchmarks(c: &mut Criterion) {
     for size in [4, 8, 16, 32, 64].iter() {
         group.throughput(Throughput::Elements(*size as u64));
 
-        group.bench_with_input(
-            BenchmarkId::new("setup_insecure", size),
-            size,
-            |b, &size| {
-                let rng = &mut ark_std::test_rng();
-                b.iter(|| GlobalData::new(size, rng).expect("Insecure setup failed"));
-            },
-        );
+        group.bench_function(BenchmarkId::new("setup_insecure", size), |b| {
+            let rng = &mut ark_std::test_rng();
+            b.iter(|| GlobalData::new(*size, rng).expect("Insecure setup failed"));
+        });
     }
 
     group.bench_function("setup_eth", |b| {
@@ -128,11 +139,11 @@ fn snark_benchmarks(c: &mut Criterion) {
         // Benchmarks for hint generation
         group.throughput(Throughput::Elements(n as u64));
 
-        group.bench_with_input(BenchmarkId::new("generate_hint", n), &n, |b, &n| {
+        group.bench_function(BenchmarkId::new("generate_hint", n), |b| {
             b.iter(|| generate_hint(&gd, &sk[0], n, n - 1).expect("Failed to generate hint"));
         });
 
-        group.bench_with_input(BenchmarkId::new("finish_setup", n), &n, |b, _| {
+        group.bench_function(BenchmarkId::new("finish_setup", n), |b| {
             b.iter(|| {
                 setup_universe(&gd, pks.clone(), &hints, weights.clone())
                     .expect("Failed to finish setup")
@@ -142,7 +153,7 @@ fn snark_benchmarks(c: &mut Criterion) {
         // Sample bitmap
         let bitmap = sample_bitmap(n - 1, 0.9);
 
-        group.bench_with_input(BenchmarkId::new("prove", n), &n, |b, &_n| {
+        group.bench_function(BenchmarkId::new("prove", n), |b| {
             b.iter(|| {
                 prove(&gd, &univ.agg_key, &weights, &bitmap).expect("Failed to generate proof")
             });
@@ -172,6 +183,30 @@ fn snark_benchmarks(c: &mut Criterion) {
             });
         }
     }
+
+    let big_committee: Committee =
+        serde_json::from_str(BIG_COMMITTEE).expect("Failed to parse committee");
+
+    let n = big_committee.pks.len();
+
+    group.bench_function(BenchmarkId::new("generate_hint", n), |b| {
+        b.iter(|| {
+            generate_hint(&big_committee.setup.global, &big_committee.sks[0], n, n - 1)
+                .expect("Failed to generate hint")
+        });
+    });
+
+    group.bench_function(BenchmarkId::new("finish_setup", n), |b| {
+        b.iter(|| {
+            setup_universe(
+                &big_committee.setup.global,
+                big_committee.pks.clone(),
+                &big_committee.hints,
+                big_committee.weights.clone(),
+            )
+            .expect("Failed to finish setup")
+        });
+    });
 
     group.finish();
 }
@@ -218,24 +253,51 @@ fn aggregation_benchmarks(c: &mut Criterion) {
         let agg = univ.aggregator();
         let verif = univ.verifier();
 
-        group.bench_with_input(
-            BenchmarkId::new("sign_aggregate_unchecked", n),
-            &n,
-            |b, &_n| {
-                b.iter(|| {
-                    sign_aggregate_unchecked(&agg, F::one(), &partials, message)
-                        .expect("Failed to aggregate signatures")
-                });
-            },
-        );
+        group.bench_function(BenchmarkId::new("sign_aggregate_unchecked", n), |b| {
+            b.iter(|| {
+                sign_aggregate_unchecked(&agg, F::one(), &partials, message)
+                    .expect("Failed to aggregate signatures")
+            });
+        });
 
         let sig = sign_aggregate(&agg, F::one(), &partials, message)
             .expect("Failed to aggregate signatures");
 
-        group.bench_with_input(BenchmarkId::new("verify_aggregate", n), &n, |b, &_n| {
+        group.bench_function(BenchmarkId::new("verify_aggregate", n), |b| {
             b.iter(|| verify_aggregate(&verif, &sig, message).expect("Signature is invalid"));
         });
     }
+
+    let big_committee: Committee =
+        serde_json::from_str(BIG_COMMITTEE).expect("Failed to parse committee");
+
+    let n = big_committee.pks.len();
+    // Message
+    let message = b"benchmark message";
+
+    // Partial signatures
+    let partials: Vec<(usize, PartialSignature)> = big_committee
+        .sks
+        .iter()
+        .enumerate()
+        .map(|(i, sk)| (i, sign(sk, message)))
+        .collect();
+
+    let agg = big_committee.setup.aggregator();
+    let verif = big_committee.setup.verifier();
+
+    let sig = sign_aggregate(&agg, F::one(), &partials, message)
+        .expect("Failed to aggregate signatures");
+
+    group.bench_function(BenchmarkId::new("verify_aggregate", n), |b| {
+        b.iter(|| verify_aggregate(&verif, &sig, message).expect("Signature is invalid"));
+    });
+    group.bench_function(BenchmarkId::new("sign_aggregate_unchecked", 1024), |b| {
+        b.iter(|| {
+            sign_aggregate_unchecked(&agg, F::one(), &partials, message)
+                .expect("Failed to aggregate signatures")
+        });
+    });
 
     group.finish();
 }
@@ -253,18 +315,18 @@ fn kzg_operations_benchmarks(c: &mut Criterion) {
         let coeffs: Vec<F> = (0..n).map(|_| F::rand(rng)).collect();
         let poly = UniPoly381::from_coefficients_slice(&coeffs);
 
-        group.bench_with_input(BenchmarkId::new("commit_g1", n), &n, |b, _| {
+        group.bench_function(BenchmarkId::new("commit_g1", n), |b| {
             b.iter(|| KZG::commit_g1(&params, &poly).expect("Failed to commit"));
         });
 
-        group.bench_with_input(BenchmarkId::new("commit_g2", n), &n, |b, _| {
+        group.bench_function(BenchmarkId::new("commit_g2", n), |b| {
             b.iter(|| KZG::commit_g2(&params, &poly).expect("Failed to commit"));
         });
 
         // Random evaluation point
         let point = F::rand(rng);
 
-        group.bench_with_input(BenchmarkId::new("compute_opening_proof", n), &n, |b, _| {
+        group.bench_function(BenchmarkId::new("compute_opening_proof", n), |b| {
             b.iter(|| {
                 KZG::compute_opening_proof(&params, &poly, &point)
                     .expect("Failed to compute opening proof")
