@@ -21,7 +21,7 @@ struct Committee {
     pub setup: UniverseSetup,
 }
 
-const BIG_COMMITTEE: &str = include_str!("big_committee.json");
+//const BIG_COMMITTEE: &str = include_str!("big_committee.json");
 
 // Helper function to sample random secret keys
 fn sample_secret_keys(num_parties: usize) -> Vec<SecretKey> {
@@ -184,29 +184,29 @@ fn snark_benchmarks(c: &mut Criterion) {
         }
     }
 
-    let big_committee: Committee =
-        serde_json::from_str(BIG_COMMITTEE).expect("Failed to parse committee");
+    //let big_committee: Committee =
+    //    serde_json::from_str(BIG_COMMITTEE).expect("Failed to parse committee");
 
-    let n = big_committee.pks.len();
+    //let n = big_committee.pks.len();
 
-    group.bench_function(BenchmarkId::new("generate_hint", n), |b| {
-        b.iter(|| {
-            generate_hint(&big_committee.setup.global, &big_committee.sks[0], n, n - 1)
-                .expect("Failed to generate hint")
-        });
-    });
+    //group.bench_function(BenchmarkId::new("generate_hint", n), |b| {
+    //    b.iter(|| {
+    //        generate_hint(&big_committee.setup.global, &big_committee.sks[0], n, n - 1)
+    //            .expect("Failed to generate hint")
+    //    });
+    //});
 
-    group.bench_function(BenchmarkId::new("finish_setup", n), |b| {
-        b.iter(|| {
-            setup_universe(
-                &big_committee.setup.global,
-                big_committee.pks.clone(),
-                &big_committee.hints,
-                big_committee.weights.clone(),
-            )
-            .expect("Failed to finish setup")
-        });
-    });
+    //group.bench_function(BenchmarkId::new("finish_setup", n), |b| {
+    //    b.iter(|| {
+    //        setup_universe(
+    //            &big_committee.setup.global,
+    //            big_committee.pks.clone(),
+    //            &big_committee.hints,
+    //            big_committee.weights.clone(),
+    //        )
+    //        .expect("Failed to finish setup")
+    //    });
+    //});
 
     group.finish();
 }
@@ -268,36 +268,36 @@ fn aggregation_benchmarks(c: &mut Criterion) {
         });
     }
 
-    let big_committee: Committee =
-        serde_json::from_str(BIG_COMMITTEE).expect("Failed to parse committee");
+    //let big_committee: Committee =
+    //    serde_json::from_str(BIG_COMMITTEE).expect("Failed to parse committee");
 
-    let n = big_committee.pks.len();
-    // Message
-    let message = b"benchmark message";
+    //let n = big_committee.pks.len();
+    //// Message
+    //let message = b"benchmark message";
 
-    // Partial signatures
-    let partials: Vec<(usize, PartialSignature)> = big_committee
-        .sks
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| (i, sign(sk, message)))
-        .collect();
+    //// Partial signatures
+    //let partials: Vec<(usize, PartialSignature)> = big_committee
+    //    .sks
+    //    .iter()
+    //    .enumerate()
+    //    .map(|(i, sk)| (i, sign(sk, message)))
+    //    .collect();
 
-    let agg = big_committee.setup.aggregator();
-    let verif = big_committee.setup.verifier();
+    //let agg = big_committee.setup.aggregator();
+    //let verif = big_committee.setup.verifier();
 
-    let sig = sign_aggregate(&agg, F::one(), &partials, message)
-        .expect("Failed to aggregate signatures");
+    //let sig = sign_aggregate(&agg, F::one(), &partials, message)
+    //    .expect("Failed to aggregate signatures");
 
-    group.bench_function(BenchmarkId::new("verify_aggregate", n), |b| {
-        b.iter(|| verify_aggregate(&verif, &sig, message).expect("Signature is invalid"));
-    });
-    group.bench_function(BenchmarkId::new("sign_aggregate_unchecked", 1024), |b| {
-        b.iter(|| {
-            sign_aggregate_unchecked(&agg, F::one(), &partials, message)
-                .expect("Failed to aggregate signatures")
-        });
-    });
+    //group.bench_function(BenchmarkId::new("verify_aggregate", n), |b| {
+    //    b.iter(|| verify_aggregate(&verif, &sig, message).expect("Signature is invalid"));
+    //});
+    //group.bench_function(BenchmarkId::new("sign_aggregate_unchecked", 1024), |b| {
+    //    b.iter(|| {
+    //        sign_aggregate_unchecked(&agg, F::one(), &partials, message)
+    //            .expect("Failed to aggregate signatures")
+    //    });
+    //});
 
     group.finish();
 }
