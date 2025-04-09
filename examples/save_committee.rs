@@ -64,7 +64,7 @@ pub fn main() {
     let hints: Vec<Hint> = sk
         .par_iter()
         .enumerate()
-        .map(|(i, sk)| generate_hint(&gd, &sk, n, i).expect("Failed to generate hints"))
+        .map(|(i, sk)| generate_hint(&gd, sk, n, i).expect("Failed to generate hints"))
         .collect();
 
     let univ_setup =

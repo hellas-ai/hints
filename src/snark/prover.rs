@@ -113,12 +113,10 @@ pub fn prove(
     let mut bitmap_full = bitmap.to_vec(); // Starts with n-1 elements
     bitmap_full.push(bitmap_aug); // Add the n-th element (which is 1)
 
-    let pk_aug = PublicKey((params.powers_of_g[0] * F::zero()).into_affine()); // Identity/Zero Point
-    let mut pks_full = ak.pks.clone(); // Starts with n-1 pks
-    pks_full.push(pk_aug); // Add the n-th pk
+    let pk_aug = PublicKey((params.powers_of_g[0] * F::zero()).into_affine());
+    let mut pks_full = ak.pks.clone(); 
+    pks_full.push(pk_aug);
 
-    // --- Use the full bitmap for filtering ---
-    // ak.q1_coms and ak.q2_coms already have length n
     let sk_q1_com = filter_and_add(params, &ak.q1_coms, &bitmap_full);
     let sk_q2_com = filter_and_add(params, &ak.q2_coms, &bitmap_full);
 

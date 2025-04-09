@@ -66,7 +66,7 @@ pub fn main() {
     let hints: Vec<Hint> = sk
         .par_iter()
         .enumerate()
-        .map(|(i, sk)| generate_hint(&gd, &sk, n, i).expect("Failed to generate hints"))
+        .map(|(i, sk)| generate_hint(&gd, sk, n, i).expect("Failed to generate hints"))
         .collect();
 
     end_timer!(parallel_work);
@@ -102,7 +102,7 @@ pub fn main() {
     let partials: Vec<(usize, PartialSignature)> = sk
         .iter()
         .enumerate()
-        .map(|(i, sk)| (i, sign(&sk, b"hello")))
+        .map(|(i, sk)| (i, sign(sk, b"hello")))
         .collect();
     end_timer!(signing);
 
