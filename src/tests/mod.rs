@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Consolidated test suite for the Hints protocol implementation.
 //! Uses a table-driven approach with a single test function to reduce boilerplate.
 
@@ -346,7 +348,7 @@ fn run_all_tests() {
             execute_invalid_domain_test()
         } else {
             // Normal test execution
-            tracker.measure(&test_case.name, || execute_test_case(&test_case))
+            tracker.measure(test_case.name, || execute_test_case(&test_case))
         };
         match result {
             Ok(_) => println!("\x1b[32m✓ PASSED\x1b[0m"),
@@ -476,7 +478,7 @@ fn execute_tampered_signature_test(config: &TestConfig) -> Result<(), String> {
     }
 
     // Tamper with the signature (modify the threshold)
-    signature.threshold = signature.threshold + crate::F::one();
+    signature.threshold += crate::F::one();
 
     // Verify with tampered signature - should fail
     match env.verify(&signature, msg) {
@@ -510,7 +512,7 @@ fn execute_tampered_partial_fails_test(config: &TestConfig) -> Result<(), String
     // Aggregate signature
     let signature = env.aggregate(threshold, &partials, msg);
 
-    if !signature.is_err() {
+    if signature.is_ok() {
         return Err("Signature should have failed to generate".to_string());
     }
 

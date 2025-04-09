@@ -103,11 +103,11 @@ impl GlobalData {
         let lockstitch = lockstitch::Protocol::new(&domain);
 
         Ok(Arc::new(Self {
-            params: params,
+            params,
             domain,
-            lagrange_polynomials: lagrange_polynomials,
-            lagrange_coms_g1: lagrange_coms_g1,
-            lagrange_coms_g2: lagrange_coms_g2,
+            lagrange_polynomials,
+            lagrange_coms_g1,
+            lagrange_coms_g2,
             lockstitch,
         }))
     }

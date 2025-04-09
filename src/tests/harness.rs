@@ -61,6 +61,7 @@ static GLOBAL_DATA_CACHE: Lazy<Mutex<HashMap<usize, Arc<GlobalData>>>> = Lazy::n
 });
 
 /// Global cache for key pairs and hints
+#[allow(clippy::type_complexity)]
 static KEY_CACHE: Lazy<Mutex<HashMap<(usize, usize), (SecretKey, PublicKey, Hint)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -314,7 +315,7 @@ impl TestEnvironment {
             .as_ref()
             .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
 
-        crate::sign_aggregate(&agg, threshold, partials, message)
+        crate::sign_aggregate(agg, threshold, partials, message)
     }
 
     pub fn aggregate_unchecked(
@@ -328,7 +329,7 @@ impl TestEnvironment {
             .as_ref()
             .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
 
-        crate::sign_aggregate_unchecked(&agg, threshold, partials, message)
+        crate::sign_aggregate_unchecked(agg, threshold, partials, message)
     }
 
     /// Verify a signature
@@ -338,7 +339,7 @@ impl TestEnvironment {
             .as_ref()
             .ok_or_else(|| HintsError::InvalidInput("Setup not completed".to_string()))?;
 
-        crate::verify_aggregate(&verif, signature, message)
+        crate::verify_aggregate(verif, signature, message)
     }
 }
 
@@ -525,7 +526,7 @@ impl PerformanceTracker {
         self.timings
             .borrow_mut()
             .entry(name)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(duration);
 
         result
