@@ -31,7 +31,7 @@ pub struct KZG10<E: Pairing, P: DenseUVPolynomial<E::ScalarField>> {
 
 /// Universal Parameters for KZG10
 #[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, CanonicalSerialize, CanonicalDeserialize,
+    Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, CanonicalSerialize, CanonicalDeserialize,
 )]
 pub struct UniversalParams<E: Pairing> {
     /// Group elements of the form `{ \beta^i G }`, where `i` ranges from 0 to `degree`.

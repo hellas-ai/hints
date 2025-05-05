@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ark_ec::AffineRepr;
 use ark_poly::univariate::DensePolynomial;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, CompressedChecked, SerializationError,
@@ -30,36 +31,65 @@ pub struct GlobalData {
     pub(crate) lockstitch: lockstitch::Protocol,
 }
 
-impl<'de> Deserialize<'de> for GlobalData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[serde_with::serde_as]
-        #[derive(Deserialize)]
-        // keeping the same name makes the generated code more consistent
-        struct GlobalData {
-            #[serde_as(as = "CompressedChecked<UniversalParams<Curve>>")]
-            pub params: UniversalParams<Curve>,
-            /// Used for domain separation in lockstitch
-            pub domain: String,
-            #[serde(with = "ark_serialize::vec_compressed_checked")]
-            pub(crate) lagrange_polynomials: Vec<DensePolynomial<F>>,
-            #[serde(with = "ark_serialize::vec_compressed_checked")]
-            pub(crate) lagrange_coms_g1: Vec<G1>,
-            #[serde(with = "ark_serialize::vec_compressed_checked")]
-            pub(crate) lagrange_coms_g2: Vec<G2>,
-        }
-        let inner = GlobalData::deserialize(deserializer)?;
+#[serde_with::serde_as]
+#[derive(Deserialize)]
+// keeping the same name makes the generated code more consistent
+struct GlobalDataInner {
+    #[serde_as(as = "CompressedChecked<UniversalParams<Curve>>")]
+    pub params: UniversalParams<Curve>,
+    /// Used for domain separation in lockstitch
+    pub domain: String,
+    #[serde(with = "ark_serialize::vec_compressed_checked")]
+    pub(crate) lagrange_polynomials: Vec<DensePolynomial<F>>,
+    #[serde(with = "ark_serialize::vec_compressed_checked")]
+    pub(crate) lagrange_coms_g1: Vec<G1>,
+    #[serde(with = "ark_serialize::vec_compressed_checked")]
+    pub(crate) lagrange_coms_g2: Vec<G2>,
+}
+
+impl From<GlobalDataInner> for GlobalData {
+    fn from(inner: GlobalDataInner) -> Self {
         let lockstitch = lockstitch::Protocol::new(&inner.domain);
-        Ok(crate::GlobalData {
+        Self {
             params: inner.params,
             domain: inner.domain,
             lagrange_polynomials: inner.lagrange_polynomials,
             lagrange_coms_g1: inner.lagrange_coms_g1,
             lagrange_coms_g2: inner.lagrange_coms_g2,
             lockstitch,
-        })
+        }
+    }
+}
+
+impl PartialEq for GlobalData {
+    fn eq(&self, other: &Self) -> bool {
+        self.params == other.params
+            && self.domain == other.domain
+            && self.lagrange_polynomials == other.lagrange_polynomials
+            && self.lagrange_coms_g1 == other.lagrange_coms_g1
+            && self.lagrange_coms_g2 == other.lagrange_coms_g2
+    }
+}
+
+impl Eq for GlobalData {}
+
+impl std::hash::Hash for GlobalData {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.params.hash(state);
+        self.domain.hash(state);
+        self.lagrange_polynomials.hash(state);
+        self.lagrange_coms_g1.hash(state);
+        self.lagrange_coms_g2.hash(state);
+    }
+}
+
+impl<'de> Deserialize<'de> for GlobalData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let inner = GlobalDataInner::deserialize(deserializer)?;
+        Ok(inner.into())
     }
 }
 
@@ -67,7 +97,7 @@ impl<'de> Deserialize<'de> for GlobalData {
 ///
 /// Includes all relevant parameters and data for a given setup,
 /// and any errors that occurred aggregating hints.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UniverseSetup {
     pub agg_key: Arc<CompressedChecked<AggregationKey>>,
     pub vk: Arc<CompressedChecked<VerifierKey>>,
@@ -76,7 +106,7 @@ pub struct UniverseSetup {
 }
 
 /// Aggregates partial signatures and generates a final signature with proof.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Aggregator {
     pub global: Arc<GlobalData>,
     pub agg_key: Arc<CompressedChecked<AggregationKey>>,
@@ -181,28 +211,96 @@ impl std::error::Error for HintsError {}
 
 /// BLS Secret Key.
 #[derive(
-    Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+    Serialize,
+    Deserialize,
 )]
 #[serde(from = "CompressedChecked<Self>", into = "CompressedChecked<Self>")]
 pub struct SecretKey(pub F);
 
 /// BLS Public Key.
 #[derive(
-    Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+    Serialize,
+    Deserialize,
 )]
 #[serde(from = "CompressedChecked<Self>", into = "CompressedChecked<Self>")]
 pub struct PublicKey(pub G1);
 
+impl PartialOrd for PublicKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PublicKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .x()
+            .cmp(&other.0.x())
+            .then_with(|| self.0.y().cmp(&other.0.y()))
+    }
+}
+
 /// BLS Partial Signature.
 #[derive(
-    Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Default,
+    Hash,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+    Serialize,
+    Deserialize,
 )]
 #[serde(from = "CompressedChecked<Self>", into = "CompressedChecked<Self>")]
 pub struct PartialSignature(pub G2);
 
+impl PartialOrd for PartialSignature {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PartialSignature {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .x()
+            .cmp(&other.0.x())
+            .then_with(|| self.0.y().cmp(&other.0.y()))
+    }
+}
+
 /// Final Aggregated Signature.
 #[derive(
-    Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+    Serialize,
+    Deserialize,
 )]
 #[serde(from = "CompressedChecked<Self>", into = "CompressedChecked<Self>")]
 pub struct Signature {
@@ -212,6 +310,22 @@ pub struct Signature {
     pub threshold: F,
     /// The SNARK proof π.
     pub proof: Proof,
+}
+
+impl PartialOrd for Signature {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Signature {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let mut my_bytes = Vec::new();
+        let mut other_bytes = Vec::new();
+        self.serialize_compressed(&mut my_bytes).unwrap();
+        other.serialize_compressed(&mut other_bytes).unwrap();
+        my_bytes.cmp(&other_bytes)
+    }
 }
 
 macro_rules! froms {

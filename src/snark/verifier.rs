@@ -9,7 +9,7 @@ use crate::HintsError;
 use super::*;
 
 /// Parameters used for verifying proofs.
-#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, CanonicalSerialize, CanonicalDeserialize)]
 pub struct VerifierKey {
     pub degree_max: usize, //size of the committee as a power of 2
     pub g_0: G1,           //first element from the KZG SRS over G1

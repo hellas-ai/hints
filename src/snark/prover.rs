@@ -9,7 +9,7 @@ use crate::{HintsError, PublicKey};
 use super::*;
 
 /// SNARK proof certifying the validity of an aggregated signature.
-#[derive(Clone, Debug, Default, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof {
     pub agg_pk: G1,
     pub agg_weight: F,
@@ -33,7 +33,7 @@ pub struct Proof {
 }
 
 /// Parameters used for aggregating proofs.
-#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, CanonicalSerialize, CanonicalDeserialize)]
 pub struct AggregationKey {
     pub degree_max: usize,
     pub pks: Vec<PublicKey>, //g^sk_i for each party i

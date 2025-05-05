@@ -70,7 +70,7 @@ fn get_zero_poly_com_g2(params: &UniversalParams<Curve>) -> G2 {
 }
 
 /// Errors that can occur during hint verification.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PartyError {
     /// Invalid hint structure.
     InvalidStructure(usize),
@@ -164,7 +164,7 @@ impl GlobalData {
         if keys.len() + 1 != degree_max {
             return Err(HintsError::InvalidInput(format!(
                 "Expected exactly n={} participants, got {}",
-                degree_max,
+                degree_max - 1,
                 keys.len(),
             )));
         }

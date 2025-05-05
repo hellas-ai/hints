@@ -14,6 +14,7 @@ pub mod utils;
 
 use kzg::UniversalParams;
 use snark::*;
+pub use snark::{F, G1, G2};
 pub use trusted_setup::*;
 pub use types::*;
 
